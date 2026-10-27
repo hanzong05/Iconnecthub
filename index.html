@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a56db">
+  <title>iConnectHub Admin – Sign in</title>
+  <link rel="icon" href="https://assets.cdn.filesafe.space/Sk7XUXxjVtIrJHKp3GhX/media/6a5634ab46ff6bf8017aab21.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <main class="auth-screen">
+    <form class="auth-card" id="loginForm" novalidate>
+      <div class="auth-logo">
+        <div class="auth-logo-mark">
+          <img src="https://assets.cdn.filesafe.space/Sk7XUXxjVtIrJHKp3GhX/media/6a5634ab46ff6bf8017aab21.png" alt="iConnectHub Admin">
+        </div>
+        <div>
+          <div class="auth-logo-name">iConnectHub Admin</div>
+          <div class="auth-logo-sub">Powered by BlueSpot</div>
+        </div>
+      </div>
+
+      <h1 class="auth-title">Sign in</h1>
+      <p class="auth-sub">Access your admin control panel.</p>
+
+      <div class="auth-field">
+        <label class="auth-label" for="authEmail">Email</label>
+        <input class="auth-input" id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" required>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label" for="authPassword">Password</label>
+        <input class="auth-input" id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password" required>
+      </div>
+
+      <div class="auth-forgot">
+        <a href="#" id="forgotLink">Forgot password?</a>
+      </div>
+
+      <div class="auth-err" id="authErr" role="alert">Invalid email or password. Please try again.</div>
+      <button class="auth-btn" id="signInBtn" type="submit">Sign In →</button>
+
+      <section class="auth-feature">
+        <div class="auth-feature-head">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <line x1="2" y1="17" x2="22" y2="17" />
+          </svg>
+          <div class="auth-feature-title">Your communication command center</div>
+        </div>
+        <p class="auth-feature-text">Manage announcements, events, updates and important information from one simple dashboard.</p>
+        <div class="auth-feature-grid">
+          <div class="auth-chip">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+            </svg>
+            <span>Announcements</span>
+          </div>
+          <div class="auth-chip">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+            <span>Events</span>
+          </div>
+          <div class="auth-chip">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+            <span>Updates</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="auth-help">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+        <span>Need access? Contact your administrator.</span>
+      </div>
+    </form>
+  </main>
+  <script src="login.js"></script>
+</body>
+</html>
