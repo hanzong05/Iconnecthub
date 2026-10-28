@@ -5,3 +5,8 @@ next-env.d.ts
 *.tsbuildinfo
 .env*.local
 .DS_Store
+
+# environment files (secrets) - never commit; .env.example is the template
+.env
+.env.*
+!.env.example
