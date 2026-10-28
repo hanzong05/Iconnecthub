@@ -3,10 +3,11 @@ import DashboardShell from '@/components/dashboard/DashboardShell'
 import Notice from '@/components/dashboard/Notice'
 import HubsView from '@/components/hubs/HubsView'
 import { getSession } from '@/lib/auth/session'
+import { getAuthEnv } from '@/lib/env'
 import { SessionExpiredError } from '@/lib/data/dashboard'
 import { getHubCards, type HubCard } from '@/lib/data/hubs'
 
-export const metadata = { title: 'Hubs – iConnectHub Admin' }
+export const metadata = { title: 'Hubs' }
 
 export default async function HubsPage() {
   const session = await getSession()
@@ -24,9 +25,9 @@ export default async function HubsPage() {
   }
 
   return (
-    <DashboardShell title="Hubs" user={{ email: session.email, name: session.name, role: session.role, hub: session.hub }} counts={{ hubs: hubs.length }}>
+    <DashboardShell title="Hubs" counts={{ hubs: hubs.length }}>
       {error && <Notice>{error}</Notice>}
-      {!error && <HubsView hubs={hubs} />}
+      {!error && <HubsView hubs={hubs} canUpload={Boolean(getAuthEnv().imgbbApiKey)} />}
     </DashboardShell>
   )
 }

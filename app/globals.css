@@ -14,7 +14,7 @@
   --color-ink3: #7890b8;
   --color-sb: #1a3a6b;
   --color-sb-active: #2a52a0;
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --radius-card: 24px;
 }
 

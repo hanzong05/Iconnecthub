@@ -4,18 +4,23 @@ import DashboardView from '@/components/dashboard/DashboardView'
 import Notice from '@/components/dashboard/Notice'
 import { getAuthEnv } from '@/lib/env'
 import { getSession } from '@/lib/auth/session'
+import HubManage from '@/components/hubs/HubManage'
 import { getDashboardData, SessionExpiredError, type DashboardData } from '@/lib/data/dashboard'
+import { getHubManage, type HubManageData } from '@/lib/data/hubs'
 
-export const metadata = { title: 'Dashboard – iConnectHub Admin' }
+export const metadata = { title: 'Dashboard' }
 
 export default async function DashboardPage() {
   const session = await getSession()
   if (!session) redirect('/')
 
   let data: DashboardData | null = null
+  let hub: HubManageData | null = null
   let error: string | null = null
   try {
-    data = await getDashboardData(session)
+    // A manager's dashboard is their own hub's page; only a super admin gets the all-hubs overview.
+    // Both reads are independent, so they run at the same time instead of one after the other.
+    ;[data, hub] = await Promise.all([getDashboardData(session), session.role !== 'super' && session.hubId ? getHubManage(session, session.hubId) : Promise.resolve(null)])
   } catch (e) {
     if (e instanceof SessionExpiredError) redirect('/session-expired')
     console.error('[dashboard]', e instanceof Error ? e.message : e)
@@ -26,9 +31,9 @@ export default async function DashboardPage() {
   const features = { notify: Boolean(env.pushWorkerUrl), upload: Boolean(env.imgbbApiKey) }
 
   return (
-    <DashboardShell title="Dashboard" user={{ email: session.email, name: session.name, role: session.role, hub: session.hub }} counts={data?.counts}>
+    <DashboardShell title="Dashboard" counts={data?.counts}>
       {error && <Notice>{error}</Notice>}
-      {data && <DashboardView data={data} features={features} />}
+      {hub ? <HubManage data={hub} features={features} /> : data && <DashboardView data={data} features={features} />}
     </DashboardShell>
   )
 }

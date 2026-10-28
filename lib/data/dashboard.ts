@@ -154,7 +154,10 @@ export interface UserRow {
   name: string
   email: string
   roleLabel: string
+  role: string
+  hubId: string
   hubName: string
+  active: boolean
 }
 
 /** Every hub the signed-in user may see (a super admin sees all; others only their own). */
@@ -179,6 +182,6 @@ export async function getUsersList(session: Session): Promise<UserRow[]> {
   const hubName = (id: string) => (id === '_global' ? 'All Hubs' : text((hubs as Json | null)?.[id] && ((hubs as Json)[id] as Row).name, session.hub ?? id))
   return rows(users)
     .filter(([, u]) => session.role === 'super' || u.hubId === session.hubId)
-    .map(([id, u]) => ({ id, name: text(u.name), email: text(u.email), roleLabel: ROLE_LABEL[text(u.role)] ?? text(u.role, 'User'), hubName: hubName(text(u.hubId)) }))
+    .map(([id, u]) => ({ id, name: text(u.name), email: text(u.email), roleLabel: ROLE_LABEL[text(u.role)] ?? text(u.role, 'User'), role: text(u.role), hubId: text(u.hubId), active: u.active !== false, hubName: hubName(text(u.hubId)) }))
     .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email))
 }

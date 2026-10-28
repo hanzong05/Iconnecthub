@@ -4,6 +4,7 @@ import { useActionState, useState } from 'react'
 import { createEventAction, type ActionState } from '@/app/actions/content'
 import type { HubOption } from '@/lib/data/dashboard'
 import { Check, Field, FormMessage, HubSelect, inputClass, SubmitButton } from '@/components/ui/fields'
+import RemoteImg from '@/components/ui/RemoteImg'
 
 const INITIAL: ActionState = {}
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -106,11 +107,11 @@ export default function EventForm({ hubs, canNotify, canUpload, onDone }: { hubs
         )}
       </Field>
 
-      <Field label="Event image" htmlFor="ev-image" hint={canUpload ? 'JPG, PNG, GIF or WebP, up to 5 MB.' : 'Image upload is not set up yet (needs IMGBB_API_KEY).'}>
+      <Field label="Event image" htmlFor="ev-image" hint={canUpload ? 'JPG, PNG, GIF or WebP, up to 5 MB.' : 'Image upload is not set up yet (needs IMGBB_API_KEY in .env).'}>
         {imageUrl && (
           <div className="mb-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imageUrl} alt="Event preview" className="max-h-40 w-full rounded-xl border border-line2 object-cover" />
+            <RemoteImg src={imageUrl} direct alt="Event preview" className="max-h-40 w-full rounded-xl border border-line2 object-cover" />
             <button type="button" onClick={() => setImageUrl('')} className="mt-1.5 text-xs font-semibold text-red-600 hover:underline">
               Remove image
             </button>

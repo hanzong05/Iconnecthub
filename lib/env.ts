@@ -43,6 +43,7 @@ export function getAuthEnv() {
     imgbbApiKey: process.env.IMGBB_API_KEY?.trim() || null,
     imgbbUploadUrl: (process.env.NODE_ENV !== 'production' && process.env.IMGBB_API_URL?.trim()) || 'https://api.imgbb.com/1/upload',
     pushWorkerUrl: optionalUrl('PUSH_WORKER_URL'),
+    deleteUserWorkerUrl: optionalUrl('DELETE_USER_WORKER_URL'),
     passwordResetWorkerUrl: url('PASSWORD_RESET_WORKER_URL'),
     sessionSeconds: positiveInt('SESSION_HOURS', 8) * 3600,
     maxAttempts: positiveInt('LOGIN_MAX_ATTEMPTS', 5),

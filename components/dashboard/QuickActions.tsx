@@ -9,6 +9,7 @@ import NewsletterForm from './forms/NewsletterForm'
 import QuickPostForm from './forms/QuickPostForm'
 import ListCard from './ListCard'
 import NavIcon from './NavIcon'
+import RemoteImg from '@/components/ui/RemoteImg'
 
 const CATEGORY: Record<string, string> = {
   info: 'bg-blue-50 text-brand',
@@ -67,7 +68,7 @@ export default function QuickActions({ data, canNotify, canUpload }: Props) {
             <div key={e.id} className={ITEM}>
               {e.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={e.imageUrl} alt="" className="h-[38px] w-[38px] shrink-0 rounded-lg object-cover" />
+                <RemoteImg src={e.imageUrl} w={40} alt="" className="h-[38px] w-[38px] shrink-0 rounded-lg object-cover" />
               )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-semibold text-ink">{e.title}</div>

@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { getAuthEnv } from '@/lib/env'
-import { AccessError, assertHubAccess, requireWriter, rtdb, type Writer } from '@/lib/data/write'
+import { AccessError, assertHubAccess, requireWriter, rtdb } from '@/lib/data/write'
+import { notifyGuests } from '@/lib/notify'
 
 export interface ActionState {
   error?: string
@@ -28,20 +29,6 @@ function httpsUrl(v: string): string | null {
   }
 }
 
-/** Optional push and email to guests through the existing worker. Never blocks or fails the save. */
-async function notifyGuests(w: Writer, hubId: string, title: string, body: string): Promise<string> {
-  const { pushWorkerUrl } = getAuthEnv()
-  if (!pushWorkerUrl) return ''
-  const hubName = String(((await rtdb('GET', `hubs_meta/${hubId}/name`, w.token).catch(() => null)) as string | null) ?? hubId)
-  const post = (url: string, payload: object) =>
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15_000) }).then((r) => r.ok)
-  const [push, email] = await Promise.all([
-    post(pushWorkerUrl, { hubId, title, body: body.slice(0, 120), idToken: w.token }).catch(() => false),
-    post(`${pushWorkerUrl}/send-email-resend`, { hubId, type: 'announcement', title, body, hubName, idToken: w.token }).catch(() => false),
-  ])
-  return push || email ? ' Guests were notified.' : ' Saved, but guests could not be notified.'
-}
-
 export async function createAnnouncementAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   try {
     const w = await requireWriter(await getSession())
@@ -64,7 +51,7 @@ export async function createAnnouncementAction(_prev: ActionState, formData: For
     })) as { name?: string }
     if (created.name) await rtdb('PATCH', `hubs/${hubId}/announcements/${created.name}`, w.token, { id: created.name })
 
-    const note = formData.get('notify') === 'on' ? await notifyGuests(w, hubId, title, message) : ''
+    const note = formData.get('notify') === 'on' ? await notifyGuests(w, hubId, { pushTitle: title, pushBody: message, emailType: 'announcement', emailTitle: title, emailBody: message }) : ''
     revalidatePath('/dashboard')
     return { success: `Announcement published.${note}` }
   } catch (e) {
@@ -120,7 +107,8 @@ export async function createEventAction(_prev: ActionState, formData: FormData):
 
     let note = ''
     if (formData.get('active') === 'on' && formData.get('notify') === 'on') {
-      note = await notifyGuests(w, hubId, `New Event: ${title}`, [hours, location].filter(Boolean).join(' · ') || description || 'Check the Events tab for details.')
+      const body = [hours, location].filter(Boolean).join(' · ') || description || 'Check the Events tab for details.'
+      note = await notifyGuests(w, hubId, { pushTitle: `📅 New Event: ${title}`, pushBody: body, emailType: 'announcement', emailTitle: `New Event: ${title}`, emailBody: body })
     }
     revalidatePath('/dashboard')
     return { success: `Event added.${note}` }
@@ -162,6 +150,56 @@ export async function deleteSubscriberAction(hubId: string, key: string): Promis
     await Promise.all([rtdb('DELETE', `hubs/${hubId}/guests/${key}`, w.token), rtdb('DELETE', `hubs/${hubId}/chats/${key}`, w.token)])
     revalidatePath('/dashboard')
     return { success: 'Guest profile deleted.' }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+// ─── Flyer lists (Monthly Happenings, Music Festival): Sanwar only, as on the hub admin ───
+
+const FLYER_HUB = 'sanwar-rv-resort-hub'
+const FLYER_KINDS = ['monthlyHappenings', 'musicFestival']
+
+async function flyerWriter(hubId: string, kind: string) {
+  if (!FLYER_KINDS.includes(kind)) throw new AccessError('Unknown flyer list.')
+  if (hubId !== FLYER_HUB) throw new AccessError('This feature is only for the Sanwar hub.')
+  const w = await requireWriter(await getSession())
+  await assertHubAccess(w, hubId)
+  return w
+}
+
+async function readFlyers(hubId: string, kind: string, token: string): Promise<string[]> {
+  const v = await rtdb('GET', `hubs/${hubId}/settings/${kind}`, token)
+  const list = Array.isArray(v) ? v : v && typeof v === 'object' ? Object.values(v) : []
+  return list.filter((u): u is string => typeof u === 'string' && Boolean(httpsUrl(u)))
+}
+
+/** Adds uploaded flyers to the end of the list in one read-then-write so several at once cannot overwrite each other. */
+export async function addFlyersAction(hubId: string, kind: string, urls: string[]): Promise<ActionState> {
+  try {
+    const w = await flyerWriter(hubId, kind)
+    const clean = (Array.isArray(urls) ? urls : []).map(httpsUrl).filter((u): u is string => u !== null)
+    if (!clean.length) return { error: 'No images to add.' }
+    const flyers = await readFlyers(hubId, kind, w.token)
+    if (flyers.length + clean.length > 60) return { error: 'That would be more than 60 flyers.' }
+    await rtdb('PUT', `hubs/${hubId}/settings/${kind}`, w.token, [...flyers, ...clean])
+    revalidatePath('/dashboard', 'layout')
+    return { success: `Added ${clean.length} flyer${clean.length === 1 ? '' : 's'}.` }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/** Removes one flyer. The link is checked as well as the position, so a stale page cannot remove the wrong one. */
+export async function removeFlyerAction(hubId: string, kind: string, index: number, url: string): Promise<ActionState> {
+  try {
+    const w = await flyerWriter(hubId, kind)
+    const flyers = await readFlyers(hubId, kind, w.token)
+    if (!Number.isInteger(index) || flyers[index] !== url) return { error: 'The list changed. Refresh and try again.' }
+    flyers.splice(index, 1)
+    await rtdb('PUT', `hubs/${hubId}/settings/${kind}`, w.token, flyers)
+    revalidatePath('/dashboard', 'layout')
+    return { success: 'Flyer removed.' }
   } catch (e) {
     return fail(e)
   }

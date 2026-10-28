@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getNewsletterImageAction, saveNewsletterImageAction } from '@/app/actions/content'
 import type { HubOption } from '@/lib/data/dashboard'
 import { Field, FormMessage, inputClass } from '@/components/ui/fields'
+import RemoteImg from '@/components/ui/RemoteImg'
 
 export default function NewsletterForm({ hubs, canUpload, onChanged }: { hubs: HubOption[]; canUpload: boolean; onChanged: () => void }) {
   const [hubId, setHubId] = useState(hubs[0]?.id ?? '')
@@ -69,7 +70,7 @@ export default function NewsletterForm({ hubs, canUpload, onChanged }: { hubs: H
         <div className="mb-3.5">
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink2">Current image</div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt="Current newsletter" className="w-full rounded-xl border border-line2" />
+          <RemoteImg src={url} direct alt="Current newsletter" className="w-full rounded-xl border border-line2" />
           <button
             type="button"
             disabled={busy}
@@ -83,7 +84,7 @@ export default function NewsletterForm({ hubs, canUpload, onChanged }: { hubs: H
         <div className="mb-3.5 rounded-xl bg-surface2 p-4 text-center text-[13px] text-ink3">{busy ? 'Loading…' : 'No newsletter image set for this hub.'}</div>
       )}
 
-      <Field label="Upload image" htmlFor="nl-file" hint={canUpload ? 'JPG, PNG, GIF or WebP, up to 5 MB. It replaces the current image.' : 'Image upload is not set up yet (needs IMGBB_API_KEY).'}>
+      <Field label="Upload image" htmlFor="nl-file" hint={canUpload ? 'JPG, PNG, GIF or WebP, up to 5 MB. It replaces the current image.' : 'Image upload is not set up yet (needs IMGBB_API_KEY in .env).'}>
         <input id="nl-file" type="file" accept="image/jpeg,image/png,image/gif,image/webp" disabled={!canUpload || busy} onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = '' }} className="text-sm text-ink2 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
       </Field>
     </div>

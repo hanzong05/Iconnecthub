@@ -3,9 +3,12 @@
 import Link from 'next/link'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import Icon from '@/components/ui/Icon'
+import { useRouter } from 'next/navigation'
 import Modal from '@/components/ui/Modal'
+import EditHubForm from './EditHubForm'
 import StatTile from '@/components/ui/StatTile'
 import type { HubCard } from '@/lib/data/hubs'
+import RemoteImg from '@/components/ui/RemoteImg'
 
 type Status = 'all' | 'active' | 'inactive'
 type Sort = 'name' | 'name-desc' | 'visitors' | 'posts'
@@ -26,7 +29,7 @@ const control = 'h-11 rounded-xl border border-line2 bg-surface text-[13px] text
 function Logo({ hub, size }: { hub: HubCard; size: string }) {
   return hub.logoUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={hub.logoUrl} alt="" className={`shrink-0 rounded-full border-4 border-white bg-white object-cover shadow-md ${size}`} />
+    <RemoteImg src={hub.logoUrl} w={80} alt="" className={`shrink-0 rounded-full border-4 border-white bg-white object-cover shadow-md ${size}`} />
   ) : (
     <div aria-hidden="true" className={`flex shrink-0 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-emerald-600 to-emerald-800 text-lg font-bold text-white shadow-md ${size}`}>
       {(hub.name[0] ?? '?').toUpperCase()}
@@ -62,22 +65,14 @@ function Dots() {
   )
 }
 
-function Detail({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-line bg-surface2 p-3.5">
-      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.07em] text-ink3">{label}</div>
-      <div className="break-words text-sm font-semibold text-ink">{children}</div>
-    </div>
-  )
-}
-
-export default function HubsView({ hubs }: { hubs: HubCard[] }) {
+export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUpload: boolean }) {
+  const router = useRouter()
   const [query, setQuery] = useState('')
   const deferred = useDeferredValue(query)
   const [status, setStatus] = useState<Status>('all')
   const [sort, setSort] = useState<Sort>('name')
   const [view, setView] = useState<View>('grid')
-  const [selected, setSelected] = useState<HubCard | null>(null)
+  const [editing, setEditing] = useState<HubCard | null>(null)
   const [menu, setMenu] = useState<{ hub: HubCard; style: React.CSSProperties } | null>(null)
   const [flash, setFlash] = useState('')
 
@@ -128,7 +123,7 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
   function openMenu(e: React.MouseEvent<HTMLButtonElement>, hub: HubCard) {
     if (menu?.hub.id === hub.id) return setMenu(null)
     const r = e.currentTarget.getBoundingClientRect()
-    const flip = r.bottom + 110 > window.innerHeight
+    const flip = r.bottom + 150 > window.innerHeight
     setMenu({ hub, style: { right: Math.max(8, window.innerWidth - r.right), ...(flip ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) } })
   }
 
@@ -144,9 +139,9 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
 
   const actions = (h: HubCard) => (
     <>
-      <button type="button" onClick={() => setSelected(h)} className="h-9 flex-1 rounded-lg bg-brand text-[13px] font-semibold text-white transition-colors hover:bg-brand-dim">
+      <Link href={`/dashboard/hubs/${encodeURIComponent(h.id)}`} className="flex h-9 flex-1 items-center justify-center rounded-lg bg-brand text-[13px] font-semibold text-white transition-colors hover:bg-brand-dim">
         Manage hub
-      </button>
+      </Link>
       <button type="button" aria-label={`More actions for ${h.name}`} aria-haspopup="menu" aria-expanded={menu?.hub.id === h.id} onClick={(e) => openMenu(e, h)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line2 bg-surface text-ink2 hover:border-brand">
         <Dots />
       </button>
@@ -158,7 +153,7 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile icon="map" tone="purple" label="Total Hubs" value={totals.hubs.toLocaleString('en-US')} />
         <StatTile icon="dot" tone="green" label="Active Hubs" value={totals.active.toLocaleString('en-US')} />
-        <StatTile icon="users" tone="blue" label="Total Visitors" value={totals.visitors.toLocaleString('en-US')} note="All time" />
+        <StatTile icon="users" tone="blue" label="Total Visits" value={totals.visitors.toLocaleString('en-US')} note="All time" />
         <StatTile icon="file" tone="orange" label="Total Posts" value={totals.posts.toLocaleString('en-US')} note="All hubs" />
       </div>
 
@@ -181,7 +176,7 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
           <select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as Sort)} className={`${control} w-full cursor-pointer appearance-none pl-10 pr-9 font-medium`}>
             <option value="name">Sort: Name (A–Z)</option>
             <option value="name-desc">Sort: Name (Z–A)</option>
-            <option value="visitors">Sort: Most visitors</option>
+            <option value="visitors">Sort: Most visits</option>
             <option value="posts">Sort: Most posts</option>
           </select>
           <Icon name="chevron" className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink2" />
@@ -211,7 +206,7 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
               <div className={`relative h-20 bg-gradient-to-br ${coverFor(h.name)}`}>
                 {h.coverUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={h.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  <RemoteImg src={h.coverUrl} w={400} alt="" className="absolute inset-0 h-full w-full object-cover" />
                 )}
                 <div className="absolute right-3 top-3">
                   <Badge active={h.active} />
@@ -231,7 +226,7 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Chip icon="users">{noun(h.visitors, 'visitor', 'visitors')}</Chip>
+                  <Chip icon="users">{noun(h.visitors, 'visit', 'visits')}</Chip>
                   <Chip icon="file">{noun(h.posts, 'post', 'posts')}</Chip>
                 </div>
                 <div className="mt-3 flex gap-2">{actions(h)}</div>
@@ -255,7 +250,7 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
               </div>
               <Badge active={h.active} />
               <div className="flex gap-2">
-                <Chip icon="users">{noun(h.visitors, 'visitor', 'visitors')}</Chip>
+                <Chip icon="users">{noun(h.visitors, 'visit', 'visits')}</Chip>
                 <Chip icon="file">{noun(h.posts, 'post', 'posts')}</Chip>
               </div>
               <div className="flex w-full gap-2 sm:w-52">{actions(h)}</div>
@@ -268,6 +263,9 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
         <>
           <button type="button" aria-label="Close menu" tabIndex={-1} onClick={() => setMenu(null)} className="fixed inset-0 z-40 cursor-default" />
           <div role="menu" style={menu.style} className="fixed z-50 w-48 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-[0_10px_30px_rgba(15,31,74,0.15)]">
+            <button role="menuitem" type="button" onClick={() => { setMenu(null); setEditing(menu.hub) }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-ink hover:bg-surface2">
+              <Icon name="settings" /> Edit hub details
+            </button>
             <Link role="menuitem" href={`/dashboard/subscribers?hub=${encodeURIComponent(menu.hub.id)}`} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-ink hover:bg-surface2">
               <Icon name="users" /> View subscribers
             </Link>
@@ -278,32 +276,19 @@ export default function HubsView({ hubs }: { hubs: HubCard[] }) {
         </>
       )}
 
-      <Modal open={selected !== null} onClose={() => setSelected(null)} title="Manage Hub">
-        {selected && (
-          <div>
-            <div className="mb-5 flex items-center gap-4 border-b border-line pb-5">
-              <Logo hub={selected} size="h-16 w-16" />
-              <div className="min-w-0">
-                <div className="truncate text-lg font-bold text-ink">{selected.name}</div>
-                <div className="mt-1">
-                  <Badge active={selected.active} />
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Detail label="Visitors">{num(selected.visitors)}</Detail>
-              <Detail label="Posts">{num(selected.posts)}</Detail>
-              <div className="col-span-2">
-                <Detail label="Location">{selected.location ?? '—'}</Detail>
-              </div>
-              <div className="col-span-2">
-                <Detail label="Hub ID">{selected.id}</Detail>
-              </div>
-            </div>
-            <Link href={`/dashboard/subscribers?hub=${encodeURIComponent(selected.id)}`} className="mt-5 flex h-11 w-full items-center justify-center rounded-xl bg-brand text-sm font-semibold text-white hover:bg-brand-dim">
-              View subscribers
-            </Link>
-          </div>
+      <Modal open={editing !== null} onClose={() => setEditing(null)} title="Edit Hub Details" subtitle="Update how this hub appears in the admin and the guest app.">
+        {editing && (
+          <EditHubForm
+            key={editing.id}
+            hub={editing}
+            canUpload={canUpload}
+            onCancel={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null)
+              setFlash('Hub details updated.')
+              router.refresh()
+            }}
+          />
         )}
       </Modal>
     </div>

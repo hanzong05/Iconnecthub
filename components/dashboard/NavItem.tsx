@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import type { NavLink } from './nav'
 import NavIcon from './NavIcon'
 
@@ -15,12 +16,20 @@ const ROW = 'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-
 /** A sidebar entry. With children it becomes an expandable group. */
 export default function NavItem({ item }: { item: NavLink }) {
   const pathname = usePathname()
-  const active = item.href ? pathname === item.href : item.active
+  const hub = useSearchParams().get('hub')
+  const childActive = Boolean(item.children?.some((c) => c.href && pathname === c.href.split('?')[0]))
+  const [open, setOpen] = useState(childActive)
+  // Opening a page inside the group opens the group; the person can still fold it by hand.
+  useEffect(() => {
+    if (childActive) setOpen(true)
+  }, [childActive])
+  const path = item.href?.split('?')[0]
+  const active = path ? pathname === path || (path !== '/dashboard' && pathname.startsWith(`${path}/`)) : item.active
   const state = active ? 'bg-sb-active text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'
 
   if (item.children) {
     return (
-      <details className="group mb-1">
+      <details className="group mb-1" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
         <summary className={`${ROW} cursor-pointer list-none select-none ${state} [&::-webkit-details-marker]:hidden`}>
           {item.icon && <NavIcon name={item.icon} />}
           <span className="flex-1">{item.label}</span>
@@ -37,7 +46,7 @@ export default function NavItem({ item }: { item: NavLink }) {
 
   if (item.href) {
     return (
-      <Link href={item.href} aria-current={active ? 'page' : undefined} className={`${ROW} mb-1 ${state}`}>
+      <Link href={hub && /^\/dashboard\/(campgrounds|map-locations|calibration)$/.test(item.href) ? `${item.href}?hub=${encodeURIComponent(hub)}` : item.href} aria-current={active ? 'page' : undefined} className={`${ROW} mb-1 ${state}`}>
         {item.icon && <NavIcon name={item.icon} />}
         <span className="flex-1 truncate">{item.label}</span>
         {item.badge && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${BADGE[item.badge.tone]}`}>{item.badge.text}</span>}
