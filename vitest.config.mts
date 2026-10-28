@@ -5,5 +5,5 @@ const root = fileURLToPath(new URL('./', import.meta.url))
 
 export default defineConfig({
   resolve: { alias: { '@': root, 'server-only': `${root}node_modules/server-only/empty.js` } },
-  test: { include: ['lib/**/*.test.ts', 'app/**/*.test.ts'], environment: 'node' },
+  test: { include: ['lib/**/*.test.ts', 'app/**/*.test.ts', 'guest-app/**/*.test.ts', 'scripts/**/*.test.ts'], environment: 'node' },
 })

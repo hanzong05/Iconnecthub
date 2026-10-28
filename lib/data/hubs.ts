@@ -10,7 +10,7 @@ export interface HubCard {
   logoUrl: string | null
   coverUrl: string | null
   active: boolean
-  /** Visits to the hub (every camper who opened it), or null when the count could not be read. */
+  /** Page loads of the hub (not people or sessions), or null when unknown. */
   visitors: number | null
   /** Announcements posted on the hub, or null when the count could not be read. */
   posts: number | null
@@ -40,11 +40,11 @@ async function count(path: string, token: string): Promise<number | null> {
   }
 }
 
-/** Visits to a hub: the counter the guest app bumps on every page load (hubs/{id}/analytics/count), as on the hub admin. */
+/** Page loads of a hub: the counter the guest app bumps on every page load (hubs/{id}/analytics/count). It counts loads, not people or sessions. Null when no count exists yet or it cannot be read. */
 async function visitCount(hubId: string, token: string): Promise<number | null> {
   try {
     const v = await read(`hubs/${hubId}/analytics/count`, token)
-    return typeof v === 'number' && Number.isFinite(v) ? v : 0
+    return typeof v === 'number' && Number.isFinite(v) ? v : null
   } catch (e) {
     if (e instanceof SessionExpiredError) throw e
     console.error('[hubs] visit count failed for', hubId)

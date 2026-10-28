@@ -134,12 +134,12 @@ export async function getDashboardData(session: Session): Promise<DashboardData>
         { label: 'Total Hubs', value: String(hubs.length), tone: 'purple', icon: 'hubs' },
         { label: 'Total Users', value: String(userRows.length), tone: 'green', icon: 'group' },
         { label: 'Active Managers', value: String(userRows.filter(([, u]) => u.role === 'manager').length), tone: 'amber', icon: 'person' },
-        { label: 'Subscribers', value: subscribers.toLocaleString('en-US'), tone: 'blue', icon: 'bell' },
-        { label: 'Notifications On', value: notificationsOn.toLocaleString('en-US'), tone: 'cyan', icon: 'bell' },
+        { label: 'Registered Guests', value: subscribers.toLocaleString('en-US'), tone: 'blue', icon: 'bell' },
+        { label: 'Guests With Notifications On', value: notificationsOn.toLocaleString('en-US'), tone: 'cyan', icon: 'bell' },
       ]
     : [
-        { label: 'Subscribers', value: subscribers.toLocaleString('en-US'), tone: 'blue', icon: 'bell' },
-        { label: 'Notifications On', value: notificationsOn.toLocaleString('en-US'), tone: 'cyan', icon: 'bell' },
+        { label: 'Registered Guests', value: subscribers.toLocaleString('en-US'), tone: 'blue', icon: 'bell' },
+        { label: 'Guests With Notifications On', value: notificationsOn.toLocaleString('en-US'), tone: 'cyan', icon: 'bell' },
       ]
 
   const counts: NavCounts = { subscribers, announcements: liveAnnouncements, events: totalEvents, hubs: hubs.length, users: userRows.length }

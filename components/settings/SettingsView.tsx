@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useTransition, type ReactNode } from 'react'
+import { useRef, useState, useTransition, type ReactNode } from 'react'
 import {
   resetPaletteAction,
   saveContactsAction,
@@ -10,17 +10,22 @@ import {
   saveLocationAction,
   saveMapDisplayAction,
   savePrivacyPolicyAction,
+  saveLocalGuideAction,
   saveTabOrderAction,
   saveGeofenceAction,
   saveGroupsAction,
   saveHubNameAction,
   savePaletteAction,
   savePwNotifyAction,
+  saveGuestNotifyAction,
   saveQuickActionsAction,
   saveVisibilityAction,
   saveWifiAction,
 } from '@/app/actions/settings'
-import type { ActionState } from '@/app/actions/content'
+import type { DraftState } from '@/app/actions/settings'
+import EmbedPreview from '@/components/preview/EmbedPreview'
+import PublishBar from './PublishBar'
+import type { Page } from '@/lib/pages'
 import { prepareMapImage, uploadPrepared } from '@/components/pathfinder/images'
 import Icon, { type IconName } from '@/components/ui/Icon'
 import RemoteImg from '@/components/ui/RemoteImg'
@@ -37,6 +42,7 @@ import {
   QUICK_ACTION_OPTIONS,
   VIS_ITEMS,
   generatePalette,
+  type AuditEntry,
   type ContactKind,
   type HeroSlot,
   type HubSettings,
@@ -45,7 +51,7 @@ import {
   type VisGroup,
 } from '@/lib/settings-catalog'
 
-type Say = (r: ActionState) => void
+type Say = (r: DraftState) => void
 
 const label = (id: string) => VIS_ITEMS.find((i) => i.id === id)?.label ?? id
 
@@ -74,12 +80,23 @@ function Switch({ on, onChange, name, disabled }: { on: boolean; onChange: (v: b
 const btn = 'h-10 whitespace-nowrap rounded-xl bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dim disabled:opacity-60'
 const ghost = 'h-10 rounded-xl border border-line2 bg-surface px-4 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand disabled:opacity-60'
 
-export default function SettingsView({ hubId, initial, hubs, noHub = false }: { hubId: string; initial: HubSettings; hubs: { id: string; name: string }[]; noHub?: boolean }) {
+export default function SettingsView({ hubId, initial, hubs, history, noHub = false, guestCss = '', dbUrl = '', pages = {} }: { hubId: string; initial: HubSettings; hubs: { id: string; name: string }[]; history: { entries: AuditEntry[]; currentReleaseId: string | null }; noHub?: boolean; guestCss?: string; dbUrl?: string; pages?: Record<string, Page> }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null)
-  const say: Say = (r) => setMsg(r.error ? { text: r.error, error: true } : { text: r.success ?? 'Saved.' })
-  const run = (fn: () => Promise<ActionState>, after?: () => void) =>
+  // The draft version this page last saw. Every save sends it, so a save made over someone else's newer draft is refused instead of overwriting it.
+  const ver = useRef(initial.draft.version)
+  const [conflict, setConflict] = useState(false)
+  const track = (r: DraftState) => {
+    if (r.version !== undefined) ver.current = r.version
+    if (r.conflict) setConflict(true)
+    else if (r.version !== undefined && !r.error) router.refresh()
+  }
+  const say: Say = (r) => {
+    track(r)
+    setMsg(r.error ? { text: r.error, error: true } : { text: r.success ?? 'Saved.' })
+  }
+  const run = (fn: () => Promise<DraftState>, after?: () => void) =>
     start(async () => {
       const r = await fn()
       say(r)
@@ -94,6 +111,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
   const [pass, setPass] = useState(initial.wifi.password)
   const [slots, setSlots] = useState(initial.quickActions)
   const [geo, setGeo] = useState(initial.geofenceEnabled)
+  const [gnOn, setGnOn] = useState(initial.guestNotify)
   const [pwOn, setPwOn] = useState(initial.pwNotify.enabled)
   const [pwEmail, setPwEmail] = useState(initial.pwNotify.email)
   const [pal, setPal] = useState<Palette>(initial.palette)
@@ -108,6 +126,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
   const [lon, setLon] = useState(initial.location.lon === null ? '' : String(initial.location.lon))
   const [map, setMap] = useState(initial.mapDisplay.mode === 'pathfinder' ? { ...initial.mapDisplay, mode: 'embed' as MapMode } : initial.mapDisplay)
   const [policy, setPolicy] = useState(initial.privacyPolicyUrl)
+  const [guide, setGuide] = useState(initial.localGuideUrl)
   const [tabs, setTabs] = useState(initial.tabOrder)
 
   const setExtra = (i: number, patch: Partial<(typeof contacts.extra)[number]>) => setContacts((c) => ({ ...c, extra: c.extra.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
@@ -117,7 +136,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
     setBusyHero(slot)
     try {
       const up = await uploadPrepared(await prepareMapImage(file))
-      const r = await saveHeroImageAction(hubId, slot, up.url)
+      const r = await saveHeroImageAction(hubId, slot, up.url, ver.current)
       say(r)
       if (!r.error) {
         setHero((h) => ({ ...h, [slot]: up.url }))
@@ -132,7 +151,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
   function removeHero(slot: HeroSlot) {
     if (!window.confirm(`Remove the ${HERO_SLOTS.find((h) => h.id === slot)?.label} picture?`)) return
     start(async () => {
-      const r = await saveHeroImageAction(hubId, slot, '')
+      const r = await saveHeroImageAction(hubId, slot, '', ver.current)
       say(r)
       if (!r.error) setHero((h) => ({ ...h, [slot]: '' }))
     })
@@ -145,7 +164,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
     ;[next[i], next[j]] = [next[j], next[i]]
     setTabs(next)
     start(async () => {
-      const r = await saveTabOrderAction(hubId, next)
+      const r = await saveTabOrderAction(hubId, next, ver.current)
       say(r)
       if (r.error) setTabs(prev)
     })
@@ -162,7 +181,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
     const prev = groups
     setGroups(next)
     start(async () => {
-      const r = await saveGroupsAction(hubId, next)
+      const r = await saveGroupsAction(hubId, next, ver.current)
       say(r)
       if (r.error) setGroups(prev)
     })
@@ -188,7 +207,8 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
     const on = !vis[id]
     setVis((v) => ({ ...v, [id]: on }))
     start(async () => {
-      const r = await saveVisibilityAction(hubId, id, on)
+      const r = await saveVisibilityAction(hubId, id, on, ver.current)
+      track(r)
       if (r.error) {
         setVis((v) => ({ ...v, [id]: !on }))
         say(r)
@@ -213,6 +233,17 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
     saveGroups(DEFAULT_VIS_GROUPS.map((g) => ({ ...g, items: [...g.items] })))
   }
 
+  const preview = (
+    <EmbedPreview
+      hubId={hubId || 'preview'}
+      dbUrl={dbUrl}
+      css={guestCss}
+      preview={{
+        pages,
+        settings: { ...initial, hubName: name, wifi: { ssid, password: pass }, quickActions: slots, palette: pal, visibility: vis, groups, contacts, heroImages: hero, location: { lat: lat === '' || Number.isNaN(Number(lat)) ? null : Number(lat), lon: lon === '' || Number.isNaN(Number(lon)) ? null : Number(lon) }, mapDisplay: map, privacyPolicyUrl: policy, localGuideUrl: guide, tabOrder: tabs },
+      }}
+    />
+  )
   const [activeGroup, setActiveGroup] = useState(initial.groups[0]?.id ?? '')
   // The banner is the picture uploaded as the Home page hero, and nothing else.
   const banner = hero.home
@@ -229,7 +260,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
     setDragFrom(null)
     setTabs(next)
     start(async () => {
-      const r = await saveTabOrderAction(hubId, next)
+      const r = await saveTabOrderAction(hubId, next, ver.current)
       say(r)
       if (r.error) setTabs(prev)
     })
@@ -265,6 +296,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
       {map.mode === mode && body && <div className="mt-2.5">{body}</div>}
     </div>
   )
+  const guideOk = /^https:\/\//i.test(guide.trim())
   const policyOk = /^https:\/\//i.test(policy.trim())
 
   return (
@@ -321,6 +353,14 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
         </div>
       </section>
 
+      {!noHub && <PublishBar hubId={hubId} draft={initial.draft} history={history} conflict={conflict} getVersion={() => ver.current} onResult={say} />}
+
+      <details className="rounded-2xl border border-line bg-surface p-4 xl:hidden">
+        <summary className="cursor-pointer text-sm font-semibold text-ink">Phone preview</summary>
+        <div className="mt-3">{preview}</div>
+      </details>
+
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start xl:gap-5">
       <fieldset disabled={noHub} aria-label="Hub settings" className={`m-0 flex min-w-0 flex-col gap-4 border-0 p-0 ${noHub ? 'opacity-60' : ''}`}>
       <div className="grid items-stretch gap-5 lg:grid-cols-12">
         <div className="lg:col-span-7">
@@ -389,7 +429,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
                 ))}
               </div>
             </div>
-            <button className={`${btn} mt-4`} disabled={pending} onClick={() => run(() => saveContactsAction(hubId, contacts))}>Save contacts</button>
+            <button className={`${btn} mt-4`} disabled={pending} onClick={() => run(() => saveContactsAction(hubId, contacts, ver.current))}>Save contacts</button>
           </Card>
         </div>
 
@@ -404,7 +444,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
                 </span>
               </label>
             </div>
-            <button className={`${btn} mt-3 w-full`} disabled={pending} onClick={() => run(() => saveWifiAction(hubId, ssid, pass))}>Update WiFi</button>
+            <button className={`${btn} mt-3 w-full`} disabled={pending} onClick={() => run(() => saveWifiAction(hubId, ssid, pass, ver.current))}>Update WiFi</button>
           </Card>
         </div>
 
@@ -428,7 +468,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
                 <p className="rounded-xl border border-dashed border-line2 px-3 py-10 text-center text-xs text-ink3">No map image link yet. Add one under Map display.</p>
               )}
             </div>
-            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveLocationAction(hubId, { lat, lon }))}>Save location</button>
+            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveLocationAction(hubId, { lat, lon }, ver.current))}>Save location</button>
           </Card>
         </div>
 
@@ -439,7 +479,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
               {mapRadio('image', 'Image link only', <input aria-label="Map image link" placeholder="https://yourdomain.com/map-image.jpg" className={inputClass} value={map.imageUrl} maxLength={500} onChange={(e) => setMap({ ...map, imageUrl: e.target.value })} />)}
               {mapRadio('none', 'No map')}
             </div>
-            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveMapDisplayAction(hubId, map))}>Save map display</button>
+            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveMapDisplayAction(hubId, map, ver.current))}>Save map display</button>
           </Card>
         </div>
 
@@ -452,9 +492,9 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
             </details>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button className={ghost} onClick={() => setPal(generatePalette(pal.primary))}>Auto-fill from primary</button>
-              <button className={ghost} disabled={pending} onClick={() => run(() => resetPaletteAction(hubId), () => setPal(generatePalette('#1a56db')))}>Reset to default</button>
+              <button className={ghost} disabled={pending} onClick={() => run(() => resetPaletteAction(hubId, ver.current), () => setPal(generatePalette('#1a56db')))}>Reset to default</button>
             </div>
-            <button className={`${btn} mt-2 w-full`} disabled={pending} onClick={() => run(() => savePaletteAction(hubId, pal))}>Apply colors</button>
+            <button className={`${btn} mt-2 w-full`} disabled={pending} onClick={() => run(() => savePaletteAction(hubId, pal, ver.current))}>Apply colors</button>
           </Card>
         </div>
 
@@ -471,7 +511,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
                 </li>
               ))}
             </ol>
-            <button className={`${ghost} mt-3 w-full`} disabled={pending} onClick={() => { const d = ['home', 'events', 'more']; setTabs(d); start(async () => say(await saveTabOrderAction(hubId, d))) }}>Reset to suggested</button>
+            <button className={`${ghost} mt-3 w-full`} disabled={pending} onClick={() => { const d = ['home', 'events', 'more']; setTabs(d); start(async () => say(await saveTabOrderAction(hubId, d, ver.current))) }}>Reset to suggested</button>
           </Card>
           <Card title="25-mile alert radius" hint="When on, alerts only go to guests within 25 miles of the hub. When off, they go to every guest.">
             <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface2 px-4 py-3">
@@ -479,7 +519,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
               <Switch name="25-mile radius" on={geo} disabled={pending} onChange={(v) => {
                 setGeo(v)
                 start(async () => {
-                  const r = await saveGeofenceAction(hubId, v)
+                  const r = await saveGeofenceAction(hubId, v, ver.current)
                   say(r)
                   if (r.error) setGeo(!v)
                 })
@@ -489,14 +529,32 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
         </div>
 
         <div className="flex flex-col gap-5 lg:col-span-4">
-          <Card title="Privacy policy" hint="Link to your privacy policy page. Leave empty to remove it.">
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink2">Privacy policy URL
+          <Card title="Rules" hint="Link to your rules page. Leave empty to remove it.">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink2">Rules URL
               <span className="flex gap-2">
                 <input className={inputClass} placeholder="https://" value={policy} maxLength={500} onChange={(e) => setPolicy(e.target.value)} />
-                {policyOk && <a href={policy.trim()} target="_blank" rel="noopener noreferrer" aria-label="Open privacy policy" className={`${ghost} inline-flex w-10 items-center justify-center px-0`}>↗</a>}
+                {policyOk && <a href={policy.trim()} target="_blank" rel="noopener noreferrer" aria-label="Open rules page" className={`${ghost} inline-flex w-10 items-center justify-center px-0`}>↗</a>}
               </span>
             </label>
-            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => savePrivacyPolicyAction(hubId, policy))}>Save</button>
+            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => savePrivacyPolicyAction(hubId, policy, ver.current))}>Save</button>
+          </Card>
+          <Card title="Local guide" hint="Link to your local area guide. It shows in the Local Guide tab and the Discover banner. Leave empty to hide the banner.">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink2">Local guide URL
+              <span className="flex gap-2">
+                <input className={inputClass} placeholder="https://" value={guide} maxLength={500} onChange={(e) => setGuide(e.target.value)} />
+                {guideOk && <a href={guide.trim()} target="_blank" rel="noopener noreferrer" aria-label="Open local guide" className={`${ghost} inline-flex w-10 items-center justify-center px-0`}>↗</a>}
+              </span>
+            </label>
+            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveLocalGuideAction(hubId, guide, ver.current))}>Save</button>
+          </Card>
+          <Card title="Notifications to guests" hint="When off, announcements and events never send a push or email to this hub's guests. Takes effect at once.">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface2 px-4 py-3">
+                <span className="text-[13px] font-semibold text-ink">{gnOn ? 'Guests can be notified' : 'Guest notifications are off'}</span>
+                <Switch name="Notifications to guests" on={gnOn} disabled={pending} onChange={setGnOn} />
+              </div>
+              <div><button className={btn} disabled={pending} onClick={() => run(() => saveGuestNotifyAction(hubId, gnOn))}>Save</button></div>
+            </div>
           </Card>
           <Card title="Password reset notifications" hint="Notify me when a hub user requests a password reset. The reset link still goes only to that person.">
             <div className="flex flex-col gap-3">
@@ -530,7 +588,7 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
             </label>
           ))}
         </div>
-        <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveQuickActionsAction(hubId, slots))}>Save quick actions</button>
+        <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveQuickActionsAction(hubId, slots, ver.current))}>Save quick actions</button>
       </Card>
       <Card title="Guest menu" hint="Choose what appears in the guest More menu and how it is grouped. Switches save at once.">
         <div className="flex flex-wrap items-center gap-2">
@@ -601,6 +659,8 @@ export default function SettingsView({ hubId, initial, hubs, noHub = false }: { 
         })()}
       </Card>
       </fieldset>
+      <aside aria-label="Phone preview" className="sticky top-4 hidden xl:block">{preview}</aside>
+      </div>
 
       <p role="note" className="rounded-xl border border-line bg-surface2 px-4 py-2.5 text-xs text-ink2">{noHub ? 'Select a hub to see and edit its settings.' : 'Changes are saved when you press a Save button (switches and the guest menu save at once) and guests see them right away.'}</p>
     </div>

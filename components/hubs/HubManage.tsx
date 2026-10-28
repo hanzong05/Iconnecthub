@@ -300,7 +300,7 @@ export default function HubManage({ data, features }: { data: HubManageData; fea
       <Hero hub={data.hub} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile icon="eye" tone="blue" label="Total Visits" value={num(data.visits)} />
+        <StatTile icon="eye" tone="blue" label="Page Loads" value={num(data.visits)} />
         <StatTile icon="calendar" tone="green" label="Total Events" value={num(data.totals.events)} />
         <StatTile icon="users" tone="blue" label="Registered Guests" value={num(data.totals.guests)} />
         <StatTile icon="file" tone="purple" label="Announcements" value={num(data.totals.announcements)} />

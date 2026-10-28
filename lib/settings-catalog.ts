@@ -182,6 +182,11 @@ export interface HubContacts { extra: ExtraContact[]; name: string; phone: strin
 export interface HubLocation { lat: number | null; lon: number | null }
 export interface HubMapDisplay { mode: MapMode; campgroundId: string; embedUrl: string; imageUrl: string }
 
+export interface SettingChange { path: string; label: string; before: string; after: string }
+/** The unpublished draft of a hub's settings: its version (for conflict checks), who saved it last, and what differs from live. */
+export interface DraftInfo { version: number; updatedAt: string; updatedBy: string; changes: SettingChange[] }
+export interface AuditEntry { id: string; at: string; by: string; action: string; summary: string; releaseId?: string }
+
 export interface HubSettings {
   hub: { id: string; name: string; location: string; logoUrl: string; coverUrl: string; description: string; publicUrl: string; active: boolean }
   contacts: HubContacts
@@ -189,15 +194,19 @@ export interface HubSettings {
   location: HubLocation
   mapDisplay: HubMapDisplay
   privacyPolicyUrl: string
+  localGuideUrl: string
   tabOrder: string[]
   hubName: string
   wifi: { ssid: string; password: string }
   quickActions: string[]
   geofenceEnabled: boolean
+  /** Whether this hub may send push/email to guests at all. On unless explicitly turned off. */
+  guestNotify: boolean
   pwNotify: { enabled: boolean; email: string }
   palette: Palette
   visibility: Record<string, boolean>
   groups: VisGroup[]
+  draft: DraftInfo
 }
 
 export function readGroups(v: unknown): VisGroup[] {
@@ -234,14 +243,17 @@ export function emptyHubSettings(): HubSettings {
     location: { lat: null, lon: null },
     mapDisplay: { mode: 'none', campgroundId: '', embedUrl: '', imageUrl: '' },
     privacyPolicyUrl: '',
+    localGuideUrl: '',
     tabOrder: [...TAB_IDS],
     hubName: '',
     wifi: { ssid: '', password: '' },
     quickActions: [...DEFAULT_QUICK],
     geofenceEnabled: true,
+    guestNotify: true,
     pwNotify: { enabled: false, email: '' },
     palette: readPalette(undefined),
     visibility: {},
     groups: readGroups(undefined),
+    draft: { version: 0, updatedAt: '', updatedBy: '', changes: [] },
   }
 }

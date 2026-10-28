@@ -78,6 +78,7 @@ export const NAV: NavGroup[] = [
       { label: 'Events', icon: 'events', access: 'manager', href: '/dashboard/events', count: { key: 'events', tone: 'green' } },
       { label: 'Guest Chat', icon: 'chat', access: 'manager', href: '/dashboard/chat' },
       { label: 'Newsletter', icon: 'newsletter', access: 'manager', href: '/dashboard/newsletter' },
+      { label: 'Pages', icon: 'newsletter', access: 'manager', href: '/dashboard/pages' },
       { label: 'Monthly Happenings', icon: 'newsletter', access: 'manager', onlyHub: SANWAR_HUB_ID, href: '/dashboard/monthly-happenings' },
       { label: 'Music Festival', icon: 'events', access: 'manager', onlyHub: SANWAR_HUB_ID, href: '/dashboard/music-festival' },
     ],

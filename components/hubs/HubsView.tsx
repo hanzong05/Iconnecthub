@@ -23,7 +23,7 @@ const COVERS = [
 ]
 const coverFor = (name: string) => COVERS[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % COVERS.length]
 const num = (n: number | null) => (n === null ? '—' : n.toLocaleString('en-US'))
-const noun = (n: number | null, one: string, many: string) => `${num(n)} ${n === 1 ? one : many}`
+const noun = (n: number | null, one: string, many: string) => (n === null ? `${many}: unknown` : `${num(n)} ${n === 1 ? one : many}`)
 const control = 'h-11 rounded-xl border border-line2 bg-surface text-[13px] text-ink outline-none transition-[border-color,box-shadow] focus:border-brand focus:shadow-[0_0_0_3px_rgba(26,86,219,0.10)]'
 
 function Logo({ hub, size }: { hub: HubCard; size: string }) {
@@ -81,7 +81,9 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
       hubs: hubs.length,
       active: hubs.filter((h) => h.active).length,
       visitors: hubs.reduce((n, h) => n + (h.visitors ?? 0), 0),
+      visitorsUnknown: hubs.filter((h) => h.visitors === null).length,
       posts: hubs.reduce((n, h) => n + (h.posts ?? 0), 0),
+      postsUnknown: hubs.filter((h) => h.posts === null).length,
     }),
     [hubs],
   )
@@ -153,8 +155,8 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile icon="map" tone="purple" label="Total Hubs" value={totals.hubs.toLocaleString('en-US')} />
         <StatTile icon="dot" tone="green" label="Active Hubs" value={totals.active.toLocaleString('en-US')} />
-        <StatTile icon="users" tone="blue" label="Total Visits" value={totals.visitors.toLocaleString('en-US')} note="All time" />
-        <StatTile icon="file" tone="orange" label="Total Posts" value={totals.posts.toLocaleString('en-US')} note="All hubs" />
+        <StatTile icon="users" tone="blue" label="Total Page Loads" value={totals.visitorsUnknown === hubs.length && hubs.length > 0 ? 'Unknown' : totals.visitors.toLocaleString('en-US')} note={totals.visitorsUnknown ? `All time. Not counted for ${totals.visitorsUnknown} hub${totals.visitorsUnknown === 1 ? '' : 's'}` : 'All time, every page load'} />
+        <StatTile icon="file" tone="orange" label="Total Posts" value={totals.postsUnknown === hubs.length && hubs.length > 0 ? 'Unknown' : totals.posts.toLocaleString('en-US')} note={totals.postsUnknown ? `Not counted for ${totals.postsUnknown} hub${totals.postsUnknown === 1 ? '' : 's'}` : 'All hubs'} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-line bg-surface p-3 shadow-[0_2px_8px_rgba(15,31,74,0.04)]">
@@ -176,7 +178,7 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
           <select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as Sort)} className={`${control} w-full cursor-pointer appearance-none pl-10 pr-9 font-medium`}>
             <option value="name">Sort: Name (A–Z)</option>
             <option value="name-desc">Sort: Name (Z–A)</option>
-            <option value="visitors">Sort: Most visits</option>
+            <option value="visitors">Sort: Most page loads</option>
             <option value="posts">Sort: Most posts</option>
           </select>
           <Icon name="chevron" className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink2" />
@@ -226,7 +228,7 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Chip icon="users">{noun(h.visitors, 'visit', 'visits')}</Chip>
+                  <Chip icon="users">{noun(h.visitors, 'page load', 'page loads')}</Chip>
                   <Chip icon="file">{noun(h.posts, 'post', 'posts')}</Chip>
                 </div>
                 <div className="mt-3 flex gap-2">{actions(h)}</div>
@@ -250,7 +252,7 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
               </div>
               <Badge active={h.active} />
               <div className="flex gap-2">
-                <Chip icon="users">{noun(h.visitors, 'visit', 'visits')}</Chip>
+                <Chip icon="users">{noun(h.visitors, 'page load', 'page loads')}</Chip>
                 <Chip icon="file">{noun(h.posts, 'post', 'posts')}</Chip>
               </div>
               <div className="flex w-full gap-2 sm:w-52">{actions(h)}</div>

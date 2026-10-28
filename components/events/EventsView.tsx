@@ -1,5 +1,7 @@
 'use client'
 
+import TestSendButton from '@/components/ui/TestSendButton'
+import { confirmNotify } from '@/components/ui/confirmNotify'
 import { useRouter } from 'next/navigation'
 import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { deleteEventAction, runEventAlertsAction, saveEventAction, toggleEventAction } from '@/app/actions/hubcontent'
@@ -111,7 +113,7 @@ function EventForm({ hubId, item, canNotify, canUpload, onDone }: { hubId: strin
   const toggleDate = (d: string) => setDates((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()))
 
   return (
-    <form action={action}>
+    <form action={action} onSubmit={(e) => confirmNotify(e, 'this new event')}>
       <FormMessage error={state.error} />
       <input type="hidden" name="hubId" value={item?.hubId ?? hubId} />
       {item && <input type="hidden" name="id" value={item.id} />}
@@ -183,6 +185,7 @@ function EventForm({ hubId, item, canNotify, canUpload, onDone }: { hubId: strin
 
       <Check name="active" label="Active" hint="Visible to guests on the events page." defaultChecked={item ? item.active : true} />
       {canNotify && !item && <Check name="notify" label="Notify guests of this new event" hint="Push and email, only if the event is active." />}
+      {canNotify && !item && <TestSendButton hubId={hubId} titleField="title" bodyField="description" titlePrefix="📅 New Event: " />}
       <SubmitButton pending={pending || upload.busy} tone="green">
         {item ? 'Save changes' : 'Save event'}
       </SubmitButton>

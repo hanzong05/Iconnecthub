@@ -1,5 +1,7 @@
 'use client'
 
+import TestSendButton from '@/components/ui/TestSendButton'
+import { confirmNotify } from '@/components/ui/confirmNotify'
 import { useRouter } from 'next/navigation'
 import { useActionState, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { deleteAnnouncementAction, runDueAnnouncementsAction, saveAnnouncementAction, toggleAnnouncementAction } from '@/app/actions/hubcontent'
@@ -64,7 +66,7 @@ function AnnouncementForm({ hubId, item, canNotify, onDone }: { hubId: string; i
   }, {} as ActionState)
 
   return (
-    <form action={action}>
+    <form action={action} onSubmit={(e) => confirmNotify(e, 'this announcement')}>
       <FormMessage error={state.error} />
       <input type="hidden" name="hubId" value={item?.hubId ?? hubId} />
       {item && <input type="hidden" name="id" value={item.id} />}
@@ -115,6 +117,7 @@ function AnnouncementForm({ hubId, item, canNotify, onDone }: { hubId: string; i
       </Field>
 
       {canNotify && !item && publish && <Check name="notify" label="Also notify guests" hint="Sends a push notification and email to this hub's guests." />}
+      {canNotify && !item && <TestSendButton hubId={hubId} titleField="title" bodyField="message" />}
       <SubmitButton pending={pending}>{item ? 'Save changes' : publish ? 'Publish announcement' : 'Save announcement'}</SubmitButton>
     </form>
   )

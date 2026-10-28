@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:guest": "vite build --config guest-app/vite.config.mts"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
