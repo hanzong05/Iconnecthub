@@ -60,6 +60,38 @@ const manager = { role: 'manager', hubId: 'hub-a', email: 'm@x.test' }
 const live = (hub: string, id: string) => get(`hubs/${hub}/pages/${id}`) as Record<string, unknown> | null
 const draft = (hub: string, id: string) => get(`hubs/${hub}/pagesDraft/${id}`) as Record<string, unknown> | null
 
+describe('pages: custom details-page menu items', () => {
+  const menu = [{ id: 'c_cabins1', label: 'Cabins', icon: 'bed', kind: 'page' }, { id: 'c_suntex1', label: 'Suntex', icon: 'boat', kind: 'link', url: 'https://suntex.com/' }]
+  const cabins = () => ({ title: 'Cabins', subtitle: '', banner: '', blocks: [{ type: 'rule', title: 'Big Cabin', body: 'Sleeps 8' }] })
+  it('lets a manager of that hub edit and publish the page once the item is published', async () => {
+    state.tree = { hubs_meta: { 'hub-a': { name: 'A' }, 'hub-b': { name: 'B' } }, hubs: { 'hub-a': { settings: { menuItems: menu } } } }
+    state.session = manager
+    const a = await actions()
+    expect((await a.savePageDraftAction('hub-a', 'c_cabins1', cabins(), 0)).success).toBeTruthy()
+    expect((await a.publishPageAction('hub-a', 'c_cabins1', 1)).success).toBeTruthy()
+    expect(live('hub-a', 'c_cabins1')).toMatchObject({ title: 'Cabins' })
+  })
+  it('refuses a page that is not a published details page of that hub (draft-only, other kind, other hub, made up)', async () => {
+    state.tree = { hubs_meta: { 'hub-a': { name: 'A' }, 'hub-b': { name: 'B' } }, hubs: { 'hub-a': { settings: { menuItems: menu }, settingsDraft: { data: { menuItems: [...menu, { id: 'c_draft01', label: 'Soon', icon: 'info', kind: 'page' }] } } } } }
+    const a = await actions()
+    for (const [hub, id] of [['hub-a', 'c_suntex1'], ['hub-a', 'c_draft01'], ['hub-a', 'c_nothere'], ['hub-b', 'c_cabins1']] as const) {
+      state.session = { role: 'super', email: 'boss@x.test' }
+      expect((await a.savePageDraftAction(hub, id, cabins(), 0)).error).toMatch(/does not exist/)
+    }
+    state.session = manager
+    expect((await a.savePageDraftAction('hub-b', 'c_cabins1', cabins(), 0)).error).toBeTruthy()
+    expect(state.writes).toEqual([])
+  })
+  it('lists the custom pages after the fixed ones', async () => {
+    state.tree = { hubs_meta: { 'hub-a': { name: 'A' } }, hubs: { 'hub-a': { settings: { menuItems: menu } } } }
+    const { getPages } = await import('@/lib/data/pages')
+    const list = await getPages('hub-a')
+    expect(list.map((p) => p.id).slice(-1)).toEqual(['c_cabins1'])
+    expect(list.find((p) => p.id === 'c_cabins1')?.label).toBe('Cabins')
+    expect(list.some((p) => p.id === 'c_suntex1')).toBe(false)
+  })
+})
+
 describe('pages: who may edit which hub', () => {
   it('refuses no session, a guest or unknown role, bad hub ids and unknown pages, and writes nothing', async () => {
     const a = await actions()
@@ -216,5 +248,76 @@ describe('pages: publish, history, restore, discard', () => {
     await a.savePageDraftAction('hub-a', 'rules', { title: '', subtitle: '', banner: '', blocks: [] }, 0)
     expect((await a.publishPageAction('hub-a', 'rules', 1)).success).toBeTruthy()
     expect(live('hub-a', 'rules')).toMatchObject({ n: 0 })
+  })
+})
+
+describe('pages: a page with a layout', () => {
+  const layout = { slots: [
+    { id: 'shead', type: 'header', label: 'Title', required: true, maxRows: 10, rowKind: 'rule' },
+    { id: 'slist', type: 'list', label: 'Rules', required: true, maxRows: 2, rowKind: 'rule' },
+    { id: 'sbtn', type: 'button', label: 'Book', required: false, maxRows: 10, rowKind: 'rule' },
+  ] }
+  const menu = [{ id: 'c_patch01', label: 'Patch', icon: 'info', kind: 'page', template: layout }]
+  const tree = () => ({ hubs_meta: { 'hub-a': { name: 'A' }, 'hub-b': { name: 'B' } }, hubs: { 'hub-a': { settings: { menuItems: menu } } } })
+  const typed = { shead: { title: 'Pumpkin Patch' }, slist: { rows: [{ title: 'No pets', body: 'Sorry' }, { title: 'Quiet', body: '10pm' }, { title: 'Third', body: 'cut' }] }, evil: { title: 'x' } }
+
+  it('lets a manager save values, builds the page from the layout and publishes it with the values', async () => {
+    state.tree = tree()
+    state.session = manager
+    const a = await actions()
+    expect((await a.savePageValuesAction('hub-a', 'c_patch01', typed, 0)).version).toBe(1)
+    const d = draft('hub-a', 'c_patch01') as Record<string, unknown>
+    expect((d.blocks as unknown[]).length).toBe(2)
+    expect(Object.keys(d.values as object)).toEqual(['shead', 'slist'])
+    expect((await a.publishPageAction('hub-a', 'c_patch01', 1)).success).toBeTruthy()
+    expect(live('hub-a', 'c_patch01')).toMatchObject({ title: 'Pumpkin Patch', n: 2 })
+    expect((live('hub-a', 'c_patch01') as { values: unknown }).values).toBeTruthy()
+  })
+  it('refuses to publish while a required field is empty, and names it', async () => {
+    state.tree = tree()
+    state.session = manager
+    const a = await actions()
+    await a.savePageValuesAction('hub-a', 'c_patch01', { shead: { title: 'Only a title' } }, 0)
+    expect((await a.publishPageAction('hub-a', 'c_patch01', 1)).error).toMatch(/Fill in Rules/)
+    expect(live('hub-a', 'c_patch01')).toBeNull()
+  })
+  it('refuses unsafe values the same way the block editor does', async () => {
+    state.tree = tree()
+    state.session = manager
+    const a = await actions()
+    expect((await a.savePageValuesAction('hub-a', 'c_patch01', { ...typed, sbtn: { value: 'javascript:alert(1)' } }, 0)).error).toMatch(/https/)
+    expect(draft('hub-a', 'c_patch01')).toBeNull()
+  })
+  it('does not let free-form blocks bypass the layout, and does not take values for a page without one', async () => {
+    state.tree = tree()
+    state.session = manager
+    const a = await actions()
+    expect((await a.savePageDraftAction('hub-a', 'c_patch01', rules(), 0)).error).toMatch(/layout/)
+    expect((await a.savePageValuesAction('hub-a', 'rules', typed, 0)).error).toMatch(/no layout/)
+    expect(draft('hub-a', 'c_patch01')).toBeNull()
+  })
+  it('keeps managers out of other hubs and takes the layout from published settings, not from the request', async () => {
+    state.tree = tree()
+    state.session = manager
+    const a = await actions()
+    expect((await a.savePageValuesAction('hub-b', 'c_patch01', typed, 0)).error).toBeTruthy()
+    state.tree = { ...tree(), hubs: { 'hub-a': { settings: { menuItems: menu }, settingsDraft: { data: { menuItems: [{ ...menu[0], template: { slots: [] } }] } } } } }
+    expect((await a.savePageValuesAction('hub-a', 'c_patch01', typed, 0)).success).toBeTruthy()
+  })
+  it('rebuilds the page from the current layout when publishing, and restores values from history', async () => {
+    state.tree = tree()
+    state.session = manager
+    const a = await actions()
+    await a.savePageValuesAction('hub-a', 'c_patch01', typed, 0)
+    await a.publishPageAction('hub-a', 'c_patch01', 1)
+    // The Super Admin later makes the button required: the old draft must not publish.
+    const stricter = { slots: layout.slots.map((s) => (s.id === 'sbtn' ? { ...s, required: true } : s)) }
+    set('hubs/hub-a/settings/menuItems', [{ ...menu[0], template: stricter }])
+    await a.savePageValuesAction('hub-a', 'c_patch01', { ...typed, shead: { title: 'Changed' } }, 0)
+    expect((await a.publishPageAction('hub-a', 'c_patch01', 1)).error).toMatch(/Fill in Book/)
+    const hist = get('hubs/hub-a/pageHistory/c_patch01') as Record<string, { values?: unknown; action: string }>
+    const id = Object.keys(hist).find((k) => hist[k].action === 'publish') as string
+    expect((await a.restorePageVersionAction('hub-a', 'c_patch01', id, 1)).version).toBe(2)
+    expect((draft('hub-a', 'c_patch01') as { values: Record<string, unknown> }).values.shead).toEqual({ title: 'Pumpkin Patch', subtitle: '' })
   })
 })

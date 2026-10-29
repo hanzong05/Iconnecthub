@@ -47,7 +47,7 @@ export function grabDiv(html, marker) {
 }
 
 /** Direct children <div ...>...</div> of a fragment's inner HTML, as {open, inner}. */
-function childDivs(inner) {
+export function childDivs(inner) {
   const out = []
   const re = /<\/?div\b[^>]*>/gi
   let depth = 0, from = 0, open = ''
@@ -57,7 +57,7 @@ function childDivs(inner) {
   }
   return out
 }
-const innerOf = (block) => block.slice(block.indexOf('>') + 1, block.lastIndexOf('</div>'))
+export const innerOf = (block) => block.slice(block.indexOf('>') + 1, block.lastIndexOf('</div>'))
 const isAlert = (open) => /border-left:\s*4px solid #(ef4444|dc2626)/i.test(open) || /color:\s*#(ef4444|dc2626)/i.test(open)
 
 export function parseRules(html) {

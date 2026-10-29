@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { MenuItem } from '@/lib/menu'
 import { dateRangeLabel, dateStrip, eventsOnDate, hubEvents, liveAnnouncements, menuGroups, publishedPages, tabsFor, telHref, timeAgo, upcomingEvents, validDb, validHub } from './model'
 import { DEFAULT_VIS_GROUPS } from '@/lib/settings-catalog'
 
@@ -72,9 +73,27 @@ describe('tabs, menu and links', () => {
   it('removes hidden items and empty groups', () => {
     const g = DEFAULT_VIS_GROUPS
     const hideAllHelp = Object.fromEntries(['contact', 'chat', 'review'].map((i) => [i, false]))
-    const out = menuGroups({ groups: g, visibility: { ...hideAllHelp, wifi: false } })
+    const out = menuGroups({ groups: g, visibility: { ...hideAllHelp, wifi: false }, menuItems: [] })
     expect(out.find((x) => x.id === 'help')).toBeUndefined()
     expect(out.find((x) => x.id === 'campinfo')?.items.map((i) => i.id)).not.toContain('wifi')
+  })
+  it('shows custom items by their own name and hides hidden, empty or unknown ones', () => {
+    const item = (o: Partial<MenuItem> & { id: string }): MenuItem => ({ label: 'Thing', icon: 'info', kind: 'page', url: '', rows: [], shown: true, ...o })
+    const menuItems = [
+      item({ id: 'c_aaa1', label: 'Pumpkin Patch' }),
+      item({ id: 'c_aaa2', label: 'Hidden', shown: false }),
+      item({ id: 'c_aaa3', label: 'No address', kind: 'link' }),
+      item({ id: 'c_aaa4', label: 'Empty sheet', kind: 'sheet' }),
+      item({ id: 'c_aaa5', label: 'Suntex', kind: 'link', url: 'https://suntex.com/' }),
+    ]
+    const groups = [{ id: 'g1', icon: 'person', label: 'More', items: ['wifi', 'c_aaa1', 'c_aaa2', 'c_aaa3', 'c_aaa4', 'c_aaa5', 'c_gone'] }]
+    const out = menuGroups({ groups, visibility: {}, menuItems })
+    expect(out[0].items.map((i) => `${i.id}:${i.label}`)).toEqual(['wifi:WiFi', 'c_aaa1:Pumpkin Patch', 'c_aaa5:Suntex'])
+  })
+  it('reads published pages for custom items too, and ignores unknown names', () => {
+    const page = { title: 'Pumpkin Patch', subtitle: '', banner: '', blocks: [{ id: 'b1', type: 'rule', title: 'Open', body: 'Daily' }] }
+    const out = publishedPages({ c_aaa1: page, evil: page, rules: page })
+    expect(Object.keys(out).sort()).toEqual(['c_aaa1', 'rules'])
   })
   it('builds safe tel links and validates embed attributes', () => {
     expect(telHref('+1 (555) 010-0199')).toBe('tel:+15550100199')

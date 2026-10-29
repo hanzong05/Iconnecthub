@@ -56,6 +56,33 @@ beforeEach(() => {
 const img = { url: 'https://i.ibb.co/x/y.webp', width: 8, height: 6 }
 const actions = () => import('./settings')
 
+describe('custom menu items', () => {
+  const groups = [{ id: 'g1', icon: 'person', label: 'More', items: ['wifi', 'c_rvsites', 'c_gone1'] }]
+  const items = [{ id: 'c_rvsites', label: 'RV Sites', icon: 'home', kind: 'sheet', rows: [{ label: 'Premium', url: 'https://example.com/p' }] }]
+  it('saves items and groups together; groups keep only items that exist', async () => {
+    const a = await actions()
+    const r = await a.saveMenuAction('hub-a', { items, groups })
+    expect(r.success).toBeTruthy()
+    expect(get('hubs/hub-a/settingsDraft/data/menuItems')).toMatchObject([{ id: 'c_rvsites', kind: 'sheet' }])
+    expect(get('hubs/hub-a/settingsDraft/data/visibilityGroups/0/items')).toEqual(['wifi', 'c_rvsites'])
+  })
+  it('refuses unsafe or invalid items and saves nothing', async () => {
+    const a = await actions()
+    const before = state.writes.length
+    expect((await a.saveMenuAction('hub-a', { items: [{ ...items[0], rows: [{ label: 'x', url: 'javascript:alert(1)' }] }], groups })).error).toBeTruthy()
+    expect((await a.saveMenuAction('hub-a', { items: [{ id: 'wifi', label: 'x', icon: 'home', kind: 'page' }], groups })).error).toBeTruthy()
+    expect((await a.saveMenuAction('hub-a', { items: 'nope', groups })).error).toBeTruthy()
+    expect(state.writes.length).toBe(before)
+  })
+  it('lets the group editor place a custom item only once it exists in the draft', async () => {
+    const a = await actions()
+    await a.saveMenuAction('hub-a', { items, groups: [{ id: 'g1', icon: 'person', label: 'More', items: ['wifi'] }] })
+    const r = await a.saveGroupsAction('hub-a', [{ id: 'g1', icon: 'person', label: 'More', items: ['c_rvsites', 'c_other1', 'wifi'] }])
+    expect(r.success).toBeTruthy()
+    expect(get('hubs/hub-a/settingsDraft/data/visibilityGroups/0/items')).toEqual(['c_rvsites', 'wifi'])
+  })
+})
+
 describe('settings actions: super admin only', () => {
   it('refuses no session, managers and super managers; writes nothing', async () => {
     const a = await actions()
@@ -65,6 +92,7 @@ describe('settings actions: super admin only', () => {
       expect((await a.saveWifiAction('hub-a', 'n', 'p')).error).toBeTruthy()
       expect((await a.saveTabOrderAction('hub-a', ['home', 'events', 'more'])).error).toBeTruthy()
       expect((await a.saveLocalGuideAction('hub-a', 'https://guide.example.com')).error).toBeTruthy()
+      expect((await a.saveMenuAction('hub-a', { items: [], groups: [] })).error).toBeTruthy()
     }
     expect(state.writes).toEqual([])
   })
@@ -231,5 +259,162 @@ describe('drafts, publish, restore and history', () => {
     expect(get('hubs_meta/hub-a')).toMatchObject({ active: false, status: 'inactive' })
     const month = Object.values(get('hubs/hub-a/audit') as Record<string, Record<string, { action: string }>>)[0]
     expect(Object.values(month)[0].action).toBe('hub.status')
+  })
+})
+
+describe('importing a menu plan', () => {
+  const slot = (id: string, type: string, label: string, extra = {}) => ({ id, type, label, required: false, maxRows: 10, rowKind: 'rule', ...extra })
+  const plan = () => ({
+    hub: 'demo',
+    items: [
+      { id: 'c_fishing', label: 'Fishing', icon: 'info', kind: 'page', url: '', rows: [], shown: true, template: { slots: [slot('saa', 'header', 'Title', { required: true }), slot('sab', 'description', 'Hours')] } },
+      { id: 'c_amen01', label: 'Amenities', icon: 'star', kind: 'sheet', url: '', rows: [{ label: 'Fishing', url: '', page: 'c_fishing' }], shown: true },
+    ],
+    values: { c_fishing: { saa: { title: 'Fishing', subtitle: 'The lake' }, sab: { title: 'Hours', body: '6 AM to midnight' } } },
+  })
+  it('saves the items to the settings draft and the content to page drafts, and writes nothing live', async () => {
+    const a = await actions()
+    const r = await a.importMenuPlanAction('hub-a', plan())
+    expect(r).toMatchObject({ success: expect.any(String), pages: 1, skipped: 0 })
+    expect((get('hubs/hub-a/settingsDraft/data/menuItems') as unknown[]).length).toBe(2)
+    expect(get('hubs/hub-a/pagesDraft/c_fishing')).toMatchObject({ title: 'Fishing', version: 1, updatedBy: 'boss@x.test' })
+    expect(get('hubs/hub-a/pages/c_fishing')).toBeNull()
+    expect(get('hubs/hub-a/settings')).toBeNull()
+    expect(state.writes.some((w) => /\/pages\/|\/settings\//.test(w))).toBe(false)
+  })
+  it('leaves a page that already has live content or a draft alone, and keeps other items already in the draft', async () => {
+    const a = await actions()
+    await a.saveMenuAction('hub-a', { items: [{ id: 'c_other01', label: 'Other', icon: 'home', kind: 'link', url: 'https://o.test/' }], groups: [] })
+    set('hubs/hub-a/pages/c_fishing', { title: 'Mine', subtitle: '', banner: '', n: 0 })
+    const r = await a.importMenuPlanAction('hub-a', plan())
+    expect(r).toMatchObject({ pages: 0, skipped: 1 })
+    expect(get('hubs/hub-a/pages/c_fishing')).toMatchObject({ title: 'Mine' })
+    expect(get('hubs/hub-a/pagesDraft/c_fishing')).toBeNull()
+    expect((get('hubs/hub-a/settingsDraft/data/menuItems') as { id: string }[]).map((m) => m.id).sort()).toEqual(['c_amen01', 'c_fishing', 'c_other01'])
+  })
+  it('is safe to load twice: items are replaced by id and page drafts are not overwritten', async () => {
+    const a = await actions()
+    await a.importMenuPlanAction('hub-a', plan())
+    const r = await a.importMenuPlanAction('hub-a', plan())
+    expect(r).toMatchObject({ pages: 0, skipped: 1 })
+    expect((get('hubs/hub-a/settingsDraft/data/menuItems') as unknown[]).length).toBe(2)
+  })
+  it('refuses a bad plan and writes nothing: unsafe link, row to a missing page, unsafe page content, empty file, too many items', async () => {
+    const a = await actions()
+    const bad = (fn: (p: ReturnType<typeof plan>) => void) => { const p = plan(); fn(p); return p }
+    const before = state.writes.length
+    expect((await a.importMenuPlanAction('hub-a', bad((p) => { p.items[1].rows = [{ label: 'x', url: 'javascript:alert(1)' }] as never }))).error).toBeTruthy()
+    expect((await a.importMenuPlanAction('hub-a', bad((p) => { p.items[1].rows = [{ label: 'x', url: '', page: 'c_nothere' }] as never }))).error).toMatch(/does not exist/)
+    expect((await a.importMenuPlanAction('hub-a', bad((p) => { (p.values.c_fishing.sab as { body: string }).body = 'ok'; (p.values.c_fishing as Record<string, unknown>).saa = { title: 'x'.repeat(200) } }))).error).toMatch(/too long/)
+    expect((await a.importMenuPlanAction('hub-a', { items: [] })).error).toMatch(/no menu items/)
+    expect((await a.importMenuPlanAction('hub-a', 'nope')).error).toBeTruthy()
+    expect((await a.importMenuPlanAction('hub-a', { items: Array.from({ length: 31 }, (_, i) => ({ id: `c_it${i}aa`, label: 'x', icon: 'info', kind: 'page' })) })).error).toMatch(/at most/)
+    expect(state.writes.length).toBe(before)
+  })
+  it('is for the Super Admin of that hub only', async () => {
+    const a = await actions()
+    for (const s of [null, { role: 'manager', hubId: 'hub-a', email: 'm@x.test' }, { role: 'super_manager', hubId: 'hub-a', email: 'sm@x.test' }]) {
+      state.session = s
+      expect((await a.importMenuPlanAction('hub-a', plan())).error).toBeTruthy()
+    }
+    state.session = { role: 'super', email: 'boss@x.test' }
+    expect((await a.importMenuPlanAction('../hub-b', plan())).error).toBeTruthy()
+    expect(state.writes).toEqual([])
+  })
+  it('refuses when someone else saved the settings draft first', async () => {
+    const a = await actions()
+    await a.saveWifiAction('hub-a', 'Net', 'pw')
+    expect((await a.importMenuPlanAction('hub-a', plan(), 0)).conflict).toBe(true)
+    expect(get('hubs/hub-a/pagesDraft/c_fishing')).toBeNull()
+  })
+})
+
+describe('naming built-in items', () => {
+  const draftData = () => (get('hubs/hub-a/settingsDraft/data') ?? {}) as Record<string, unknown>
+
+  it('saves a name for a built-in item as a draft and leaves the live settings alone', async () => {
+    const { saveMoreLabelAction } = await actions()
+    const r = await saveMoreLabelAction('hub-a', 'contact', '  Call   the Office ')
+    expect(r.error).toBeUndefined()
+    expect(draftData().moreLabels).toEqual({ contact: 'Call the Office' })
+    expect(get('hubs/hub-a/settings/moreLabels')).toBeNull()
+  })
+
+  it('keeps an empty value so a live name can be cleared, and keeps other names', async () => {
+    const { saveMoreLabelAction } = await actions()
+    await saveMoreLabelAction('hub-a', 'contact', 'Call the Office')
+    await saveMoreLabelAction('hub-a', 'wifi', 'Internet')
+    await saveMoreLabelAction('hub-a', 'contact', '')
+    expect(draftData().moreLabels).toEqual({ contact: '', wifi: 'Internet' })
+  })
+
+  it('refuses unknown items, markup, control characters and long names, writing nothing', async () => {
+    const { saveMoreLabelAction } = await actions()
+    expect((await saveMoreLabelAction('hub-a', 'c_rvsites', 'x')).error).toBe('Unknown item.')
+    expect((await saveMoreLabelAction('hub-a', 'wifi/../x', 'x')).error).toBe('Unknown item.')
+    expect((await saveMoreLabelAction('hub-a', 'wifi', '<b>Hi</b>')).error).toMatch(/special characters/)
+    expect((await saveMoreLabelAction('hub-a', 'wifi', 'a\u0007b')).error).toMatch(/special characters/)
+    expect((await saveMoreLabelAction('hub-a', 'wifi', 'x'.repeat(41))).error).toMatch(/too long/)
+    expect(state.writes).toEqual([])
+  })
+
+  it('publishing puts the names live, and clearing the last name removes them from the live settings', async () => {
+    const a = await actions()
+    await a.saveMoreLabelAction('hub-a', 'contact', 'Call the Office')
+    await a.publishSettingsAction('hub-a')
+    expect(get('hubs/hub-a/settings/moreLabels')).toEqual({ contact: 'Call the Office' })
+    await a.saveMoreLabelAction('hub-a', 'contact', '')
+    await a.publishSettingsAction('hub-a')
+    expect(get('hubs/hub-a/settings/moreLabels')).toBeNull()
+  })
+
+  it('is for the super admin only, and rejects a stale page', async () => {
+    const { saveMoreLabelAction } = await actions()
+    state.session = { role: 'manager', hubId: 'hub-a', email: 'm1@x.test' }
+    expect((await saveMoreLabelAction('hub-a', 'wifi', 'Internet')).error).toMatch(/super admin/i)
+    state.session = { role: 'super', email: 'boss@x.test' }
+    set('hubs/hub-a/settingsDraft', { version: 4, updatedBy: 'other@x.test', data: {} })
+    const r = await saveMoreLabelAction('hub-a', 'wifi', 'Internet', 3)
+    expect(r.conflict).toBe(true)
+    expect(draftData().moreLabels).toBeUndefined()
+  })
+})
+
+describe('rules list', () => {
+  const draftData = () => (get('hubs/hub-a/settingsDraft/data') ?? {}) as Record<string, unknown>
+
+  it('saves the rules as a draft, in order, and leaves live alone until published', async () => {
+    const a = await actions()
+    const r = await a.saveHouseRulesAction('hub-a', [{ title: ' Quiet hours ', details: '10pm to 7am' }, { title: 'Pets', details: '' }])
+    expect(r.error).toBeUndefined()
+    expect(draftData().houseRules).toEqual([{ title: 'Quiet hours', details: '10pm to 7am' }, { title: 'Pets', details: '' }])
+    expect(get('hubs/hub-a/settings/houseRules')).toBeNull()
+    await a.publishSettingsAction('hub-a')
+    expect(get('hubs/hub-a/settings/houseRules')).toEqual([{ title: 'Quiet hours', details: '10pm to 7am' }, { title: 'Pets', details: '' }])
+  })
+
+  it('emptying the list clears the live rules on publish', async () => {
+    set('hubs/hub-a/settings/houseRules', [{ title: 'Old', details: '' }])
+    const a = await actions()
+    const r = await a.saveHouseRulesAction('hub-a', [])
+    expect(r.success).toMatch(/Rules cleared/)
+    await a.publishSettingsAction('hub-a')
+    expect(get('hubs/hub-a/settings/houseRules')).toBeNull()
+  })
+
+  it('refuses a rule without a title, writing nothing', async () => {
+    const a = await actions()
+    state.writes = []
+    expect((await a.saveHouseRulesAction('hub-a', [{ title: '', details: 'x' }])).error).toMatch(/add a title/)
+    expect(state.writes).toEqual([])
+  })
+
+  it('is for the super admin only, and rejects a stale page', async () => {
+    const a = await actions()
+    state.session = { role: 'manager', hubId: 'hub-a', email: 'm1@x.test' }
+    expect((await a.saveHouseRulesAction('hub-a', [{ title: 'Pets', details: '' }])).error).toMatch(/super admin/i)
+    state.session = { role: 'super', email: 'boss@x.test' }
+    set('hubs/hub-a/settingsDraft', { version: 4, updatedBy: 'other@x.test', data: {} })
+    expect((await a.saveHouseRulesAction('hub-a', [{ title: 'Pets', details: '' }], 3)).conflict).toBe(true)
   })
 })

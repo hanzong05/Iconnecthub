@@ -1,3 +1,5 @@
+import type { MenuItem } from './menu'
+import type { Page } from './pages'
 /** Things a hub can switch on or off for guests, and the defaults. Shared by the Settings page and its server actions. */
 
 export const VIS_ITEMS = [
@@ -179,6 +181,10 @@ export type ContactKind = (typeof CONTACT_KINDS)[number]['id']
 export const MAX_EXTRA_CONTACTS = 12
 export interface ExtraContact { label: string; kind: ContactKind; value: string }
 export interface HubContacts { extra: ExtraContact[]; name: string; phone: string; email: string; website: string; address: string }
+/** One house rule: a short title and its details (line breaks and **bold** are allowed in the details). */
+export interface HubRule { title: string; details: string }
+export const RULE_LIMITS = { max: 40, title: 120, details: 1500 } as const
+
 export interface HubLocation { lat: number | null; lon: number | null }
 export interface HubMapDisplay { mode: MapMode; campgroundId: string; embedUrl: string; imageUrl: string }
 
@@ -195,6 +201,11 @@ export interface HubSettings {
   mapDisplay: HubMapDisplay
   privacyPolicyUrl: string
   localGuideUrl: string
+  menuItems: MenuItem[]
+  /** The rules guests read in the Rules item (Settings → Rules). Empty = the Rules item opens the link or the manager's Rules page. */
+  houseRules: HubRule[]
+  /** Super Admin's own names for built-in More items, by item id. Missing = the default name. */
+  moreLabels: Record<string, string>
   tabOrder: string[]
   hubName: string
   wifi: { ssid: string; password: string }
@@ -226,6 +237,45 @@ export function readGroups(v: unknown): VisGroup[] {
   return groups.length ? groups : DEFAULT_VIS_GROUPS.map((g) => ({ ...g, items: [...g.items] }))
 }
 
+// eslint-disable-next-line no-control-regex
+const CTRL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+
+/** Reads saved rules (a list, or a keyed object). Rules without a title, and anything over the limits, are dropped. */
+export function readHouseRules(v: unknown): HubRule[] {
+  const list = Array.isArray(v) ? v : v && typeof v === 'object' ? Object.values(v as object) : []
+  const out: HubRule[] = []
+  for (const x of list) {
+    if (!x || typeof x !== 'object') continue
+    const o = x as Record<string, unknown>
+    const title = typeof o.title === 'string' ? o.title.replace(CTRL, '').replace(/\s+/g, ' ').trim().slice(0, RULE_LIMITS.title) : ''
+    const details = typeof o.details === 'string' ? o.details.replace(/\r\n?/g, '\n').replace(CTRL, '').trim().slice(0, RULE_LIMITS.details) : ''
+    if (title) out.push({ title, details })
+    if (out.length >= RULE_LIMITS.max) break
+  }
+  return out
+}
+
+/** The Rules details page guests see: one rule block per rule, then the optional link to a full rules page. */
+export function houseRulesPage(rules: HubRule[], link: string): Page {
+  const blocks: Page['blocks'] = rules.map((r, i) => ({ id: `hr${i}`, type: 'rule' as const, title: r.title, body: r.details }))
+  if (/^https:\/\//i.test(link)) blocks.push({ id: 'hrlink', type: 'contact', label: 'Full rules', kind: 'link', value: link })
+  return { title: 'Rules', subtitle: '', banner: '', blocks }
+}
+
+export const MORE_LABEL_MAX = 40
+
+/** Reads saved names for built-in items. Unknown ids, empty and over-long values are dropped. */
+export function readMoreLabels(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out
+  for (const [id, x] of Object.entries(v as Record<string, unknown>)) {
+    if (!VIS_IDS.includes(id) || typeof x !== 'string') continue
+    const t = x.replace(/\s+/g, ' ').trim()
+    if (t && t.length <= MORE_LABEL_MAX) out[id] = t
+  }
+  return out
+}
+
 export function readTabOrder(v: unknown): string[] {
   const list = Array.isArray(v) ? v : v && typeof v === 'object' ? Object.values(v as object) : []
   const out: string[] = []
@@ -244,6 +294,9 @@ export function emptyHubSettings(): HubSettings {
     mapDisplay: { mode: 'none', campgroundId: '', embedUrl: '', imageUrl: '' },
     privacyPolicyUrl: '',
     localGuideUrl: '',
+    menuItems: [],
+    houseRules: [],
+    moreLabels: {},
     tabOrder: [...TAB_IDS],
     hubName: '',
     wifi: { ssid: '', password: '' },

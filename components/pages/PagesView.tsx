@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { discardPageDraftAction, publishPageAction, restorePageVersionAction, savePageDraftAction, type PageActionState } from '@/app/actions/pages'
+import { discardPageDraftAction, publishPageAction, restorePageVersionAction, savePageDraftAction, savePageValuesAction, type PageActionState } from '@/app/actions/pages'
 import Modal from '@/components/ui/Modal'
 import RemoteImg from '@/components/ui/RemoteImg'
 import { inputClass } from '@/components/ui/fields'
@@ -11,6 +11,8 @@ import type { PageState } from '@/lib/data/pages'
 import type { HubSettings } from '@/lib/settings-catalog'
 import { BLOCK_LABELS, BLOCK_LIMITS as L, MAX_BLOCKS, describeChange, emptyPage, type Block, type BlockType, type Page } from '@/lib/pages'
 import BlockEditor from './BlockEditor'
+import TemplateForm from './TemplateForm'
+import { cleanValues, fillToPage, missingRequired, type SlotValues } from '@/lib/template'
 import EmbedPreview from '@/components/preview/EmbedPreview'
 
 const btn = 'h-10 whitespace-nowrap rounded-xl bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dim disabled:opacity-60'
@@ -74,6 +76,9 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
   const [pending, start] = useTransition()
   const fromServer = state.draft?.page ?? state.live ?? emptyPage()
   const [work, setWork] = useState<Page>(fromServer)
+  const tpl = state.template
+  const valuesFromServer = (): SlotValues => state.draft?.values ?? state.liveValues ?? {}
+  const [values, setValues] = useState<SlotValues>(valuesFromServer)
   const [dirty, setDirty] = useState(false)
   const ver = useRef(state.draft?.version ?? 0)
   const [conflict, setConflict] = useState(false)
@@ -88,6 +93,7 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
   useEffect(() => {
     if (dirty) return
     setWork(state.draft?.page ?? state.live ?? emptyPage())
+    setValues(valuesFromServer())
     ver.current = state.draft?.version ?? 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig])
@@ -100,6 +106,20 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
     return () => window.removeEventListener('beforeunload', h)
   }, [dirty])
 
+  // For a page with a layout the preview is built from the typed values; while something typed is not valid yet, the last good page stays.
+  const built = useMemo(() => {
+    if (!tpl) return work
+    try {
+      return fillToPage(tpl, values)
+    } catch {
+      return null
+    }
+  }, [tpl, values, work])
+  const lastGood = useRef<Page>(work)
+  if (built) lastGood.current = built
+  const shown: Page = built ?? lastGood.current
+  const missing = tpl ? missingRequired(tpl, cleanValues(tpl, values)) : []
+
   const say = (r: PageActionState) => {
     if (r.version !== undefined) ver.current = r.version
     if (r.conflict) setConflict(true)
@@ -107,6 +127,11 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
   }
   const edit = (next: Page) => {
     setWork(next)
+    setDirty(true)
+    setMsg(null)
+  }
+  const editValues = (next: SlotValues) => {
+    setValues(next)
     setDirty(true)
     setMsg(null)
   }
@@ -133,7 +158,7 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
       }
     })
 
-  const save = () => act(() => savePageDraftAction(hubId, state.id, work, ver.current), () => setDirty(false))
+  const save = () => act(() => (tpl ? savePageValuesAction(hubId, state.id, values, ver.current) : savePageDraftAction(hubId, state.id, work, ver.current)), () => setDirty(false))
   const publish = () => act(() => publishPageAction(hubId, state.id, ver.current), () => setReviewing(false))
   const discard = () => {
     if (window.confirm('Discard the draft? The unpublished changes are lost. What guests see does not change.')) act(() => discardPageDraftAction(hubId, state.id, ver.current), () => setDirty(false))
@@ -190,7 +215,7 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
             <button type="button" className={ghost} onClick={() => setHistory(true)}>History</button>
             <button type="button" className={ghost} disabled={pending || !hasDraft} onClick={discard}>Discard draft</button>
             <button type="button" className={ghost} disabled={pending || !dirty || conflict} onClick={save}>{pending && dirty ? 'Saving…' : 'Save draft'}</button>
-            <button type="button" className={btn} disabled={pending || !canReview || Boolean(state.draft?.stale)} onClick={() => setReviewing(true)}>Review and publish</button>
+            <button type="button" className={btn} disabled={pending || !canReview || Boolean(state.draft?.stale) || missing.length > 0} title={missing.length ? `Fill in ${missing.join(', ')} first` : undefined} onClick={() => setReviewing(true)}>Review and publish</button>
           </div>
         </section>
 
@@ -198,7 +223,10 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
           {msg && <p className={`rounded-xl border px-4 py-2.5 text-[13px] ${msg.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{msg.text}</p>}
         </div>
 
+        {tpl && missing.length > 0 && <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-800">Still to fill in before you can publish: {missing.join(', ')}.</p>}
         <fieldset disabled={pending} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
+          {tpl && <TemplateForm template={tpl} values={values} onChange={editValues} onError={(m) => setMsg({ text: m, error: true })} />}
+          {!tpl && (<>
           <section className={card} aria-label="Page header">
             <h3 className="mb-3 text-sm font-bold text-ink">Page header</h3>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -233,15 +261,16 @@ function PageEditor({ hubId, state, settings, css, dbUrl, livePages }: { hubId: 
               </ol>
             )}
           </section>
+          </>)}
         </fieldset>
 
         <details className={`${card} xl:hidden`}>
           <summary className="cursor-pointer text-sm font-semibold text-ink">Preview</summary>
-          <div className="mt-3 flex justify-center">{embed(work)}</div>
+          <div className="mt-3 flex justify-center">{embed(shown)}</div>
         </details>
       </div>
 
-      <aside aria-label="Preview" className="sticky top-4 hidden xl:block">{embed(work)}</aside>
+      <aside aria-label="Preview" className="sticky top-4 hidden xl:block">{embed(shown)}</aside>
 
       <Modal open={reviewing} title={`Publish ${state.label}`} subtitle="This is what changes for guests when you publish." onClose={() => setReviewing(false)}>
         <p className="mb-3 rounded-lg bg-surface2 px-3 py-2 text-[13px] text-ink2">{state.draft ? describeChange(state.live, state.draft.page) : ''}</p>

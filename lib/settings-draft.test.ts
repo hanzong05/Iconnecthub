@@ -56,3 +56,60 @@ describe('toLive', () => {
     expect(l.mapDisplay).toBeNull()
   })
 })
+
+describe('built-in item names', () => {
+  it('reads only known ids with clean, short names', async () => {
+    const { readMoreLabels } = await import('./settings-catalog')
+    expect(readMoreLabels({ contact: ' Call  us ', wifi: '', rules: 5, c_x: 'no', chat: 'x'.repeat(41) })).toEqual({ contact: 'Call us' })
+    expect(readMoreLabels(null)).toEqual({})
+    expect(readMoreLabels(['a'])).toEqual({})
+  })
+
+  it('a draft name is laid over live names, and an empty one clears a live name', async () => {
+    const { readDraftState } = await import('./settings-draft')
+    const live = { moreLabels: { contact: 'Old', wifi: 'Net' } }
+    const s = readDraftState(live, { data: { moreLabels: { contact: '', rules: 'House Rules' } } }, {}, 'h', 'H')
+    expect(s.effective.moreLabels).toEqual({ wifi: 'Net', rules: 'House Rules' })
+    expect(s.live.moreLabels).toEqual({ contact: 'Old', wifi: 'Net' })
+    const c = s.draft.changes.find((x) => x.path === 'moreLabels')
+    expect(c?.label).toBe('Built-in item names')
+    expect(c?.after).toMatch(/Contact Us: default name/)
+    expect(c?.after).toMatch(/Rules: "House Rules"/)
+  })
+
+  it('no change shows nothing to review', async () => {
+    const { readDraftState } = await import('./settings-draft')
+    const s = readDraftState({ moreLabels: { wifi: 'Net' } }, { data: { moreLabels: { wifi: 'Net' } } }, {}, 'h', 'H')
+    expect(s.draft.changes.find((x) => x.path === 'moreLabels')).toBeUndefined()
+  })
+})
+
+describe('house rules in the draft', () => {
+  it('reads saved rules from a list or a keyed object, dropping rules without a title', async () => {
+    const { readHouseRules } = await import('./settings-catalog')
+    expect(readHouseRules([{ title: 'A', details: 'a' }, { details: 'no title' }, 'x', null])).toEqual([{ title: 'A', details: 'a' }])
+    expect(readHouseRules({ k1: { title: 'B', details: '' } })).toEqual([{ title: 'B', details: '' }])
+    expect(readHouseRules(false)).toEqual([])
+  })
+
+  it('a draft list replaces the live list, and false clears it', async () => {
+    const { readDraftState } = await import('./settings-draft')
+    const live = { houseRules: [{ title: 'Old', details: 'o' }] }
+    const edited = readDraftState(live, { data: { houseRules: [{ title: 'New', details: 'n' }] } }, {}, 'h', 'H')
+    expect(edited.effective.houseRules).toEqual([{ title: 'New', details: 'n' }])
+    const c = edited.draft.changes.find((x) => x.path === 'houseRules')
+    expect(c?.label).toBe('Rules')
+    expect(c?.after).toMatch(/1 rule: New/)
+    const cleared = readDraftState(live, { data: { houseRules: false } }, {}, 'h', 'H')
+    expect(cleared.effective.houseRules).toEqual([])
+    expect(cleared.draft.changes.find((x) => x.path === 'houseRules')?.after).toBe('None')
+  })
+
+  it('builds the guest rules page with the link last, only for an https link', async () => {
+    const { houseRulesPage } = await import('./settings-catalog')
+    const p = houseRulesPage([{ title: 'Pets', details: 'On a leash' }], 'https://x.test/rules')
+    expect(p.title).toBe('Rules')
+    expect(p.blocks.map((b) => b.type)).toEqual(['rule', 'contact'])
+    expect(houseRulesPage([{ title: 'Pets', details: '' }], 'javascript:alert(1)').blocks).toHaveLength(1)
+  })
+})

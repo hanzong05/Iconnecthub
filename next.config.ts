@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
   compress: true,
   // Map saves send the whole map as one request (up to about 2.5 MB of text).
   experimental: { serverActions: { bodySizeLimit: '4mb' } },
+  // The phone preview reads the guest app's stylesheet from disk at run time. Without this, Vercel leaves the file out of the
+  // deployed route and the preview draws unstyled.
+  outputFileTracingIncludes: {
+    '/dashboard/settings': ['./guest-app/src/hub.css'],
+    '/dashboard/pages': ['./guest-app/src/hub.css'],
+  },
   async headers() {
     return [
       { source: '/:path*', headers: securityHeaders },

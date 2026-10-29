@@ -1,0 +1,7 @@
+# STAGING push worker. A new name and address; it shares nothing with the live bluespot-push worker.
+name = "iconnecthub-push-staging"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[triggers]
+crons = ["* * * * *"]

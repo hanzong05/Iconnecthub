@@ -22,6 +22,9 @@ export const DRAFT_PATHS = [
   'mapDisplay',
   'privacyPolicyUrl',
   'localGuideUrl',
+  'menuItems',
+  'houseRules',
+  'moreLabels',
   'tabOrder',
 ] as const
 export type DraftPath = (typeof DRAFT_PATHS)[number]
@@ -39,6 +42,9 @@ export const DRAFT_LABELS: Record<DraftPath, string> = {
   mapDisplay: 'Map display',
   privacyPolicyUrl: 'Rules link',
   localGuideUrl: 'Local guide link',
+  menuItems: 'Custom menu items',
+  houseRules: 'Rules',
+  moreLabels: 'Built-in item names',
   tabOrder: 'Tab order',
 }
 
@@ -50,7 +56,7 @@ export function mergeDraft(live: unknown, draftData: unknown): Record<string, un
   if (!isObj(draftData)) return { ...base }
   const out: Record<string, unknown> = { ...base }
   for (const [k, v] of Object.entries(draftData)) {
-    out[k] = isObj(v) && isObj(base[k]) && (k === 'visibility' || k === 'heroImages') ? mergeDeep(base[k] as Record<string, unknown>, v) : v
+    out[k] = isObj(v) && isObj(base[k]) && (k === 'visibility' || k === 'heroImages' || k === 'moreLabels') ? mergeDeep(base[k] as Record<string, unknown>, v) : v
   }
   return out
 }
@@ -79,6 +85,9 @@ export function toLive(s: ParsedSettings): Record<DraftPath, unknown> {
     mapDisplay: md.mode === 'none' ? null : { mode: md.mode, campgroundId: md.campgroundId, embedUrl: md.embedUrl, imageUrl: md.imageUrl },
     privacyPolicyUrl: s.privacyPolicyUrl || null,
     localGuideUrl: s.localGuideUrl || null,
+    menuItems: s.menuItems.length ? s.menuItems : null,
+    houseRules: s.houseRules.length ? s.houseRules : null,
+    moreLabels: Object.keys(s.moreLabels).length ? s.moreLabels : null,
     tabOrder: s.tabOrder,
   }
 }
@@ -125,6 +134,15 @@ function describe(path: DraftPath, s: ParsedSettings, other: ParsedSettings): st
       return s.privacyPolicyUrl || 'Not set'
     case 'localGuideUrl':
       return s.localGuideUrl || 'Not set'
+    case 'menuItems':
+      return s.menuItems.length ? s.menuItems.map((m) => `${m.label}${m.shown ? '' : ' (hidden)'}`).join(', ') : 'None'
+    case 'houseRules':
+      return s.houseRules.length ? `${s.houseRules.length} rule${s.houseRules.length === 1 ? '' : 's'}: ${s.houseRules.map((r) => r.title).join(', ')}`.slice(0, 200) : 'None'
+    case 'moreLabels': {
+      const ids = [...new Set([...Object.keys(s.moreLabels), ...Object.keys(other.moreLabels)])]
+      const f = ids.filter((id) => s.moreLabels[id] !== other.moreLabels[id]).map((id) => `${label(VIS_ITEMS, id)}: ${s.moreLabels[id] ? `"${s.moreLabels[id]}"` : 'default name'}`)
+      return f.join(', ') || 'Default names'
+    }
     case 'tabOrder':
       return s.tabOrder.map((t) => TAB_LABELS[t] ?? t).join(' → ')
   }

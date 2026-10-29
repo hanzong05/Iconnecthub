@@ -43,3 +43,26 @@ describe('settings validation', () => {
     expect(() => parseTabOrder(['home'])).toThrow()
   })
 })
+
+describe('house rules', () => {
+  it('keeps clean titles and details in order and trims them', async () => {
+    const { parseHouseRules } = await import('./settings-validate')
+    expect(parseHouseRules([{ title: '  Quiet   hours ', details: ' 10pm to 7am\r\nNo generators ' }, { title: 'Pets' }])).toEqual([
+      { title: 'Quiet hours', details: '10pm to 7am\nNo generators' },
+      { title: 'Pets', details: '' },
+    ])
+    expect(parseHouseRules(undefined)).toEqual([])
+    expect(parseHouseRules([])).toEqual([])
+  })
+
+  it('refuses a rule with no title, wrong types, too many, too long, or control characters', async () => {
+    const { parseHouseRules, SettingsInvalid } = await import('./settings-validate')
+    expect(() => parseHouseRules([{ title: 'ok' }, { title: '  ', details: 'x' }])).toThrow(/Rule 2: add a title/)
+    expect(() => parseHouseRules('rules')).toThrow(SettingsInvalid)
+    expect(() => parseHouseRules([{ title: 5 }])).toThrow(/must be text/)
+    expect(() => parseHouseRules(Array.from({ length: 41 }, () => ({ title: 'x' })))).toThrow(/at most 40/)
+    expect(() => parseHouseRules([{ title: 'x'.repeat(121) }])).toThrow(/title is too long/)
+    expect(() => parseHouseRules([{ title: 'Fires', details: 'x'.repeat(1501) }])).toThrow(/details are too long/)
+    expect(() => parseHouseRules([{ title: 'Bad\u0007' }])).toThrow(/special characters/)
+  })
+})

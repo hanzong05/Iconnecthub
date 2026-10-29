@@ -4,3 +4,5 @@ export function grabDiv(html: string, marker: string): string | null
 export function parseRules(html: string): ImportedPage | null
 export function parseReservations(html: string): ImportedPage | null
 export function extractPages(html: string): Record<string, ImportedPage>
+export function childDivs(inner: string): { open: string; inner: string }[]
+export function innerOf(block: string): string

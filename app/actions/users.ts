@@ -10,6 +10,23 @@ import type { ActionState } from './content'
 const ROLES = ['manager', 'super_manager', 'super'] as const
 type Role = (typeof ROLES)[number]
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PASSWORD_MIN = 10
+const PASSWORD_MAX = 128
+const HUB_ID = /^[A-Za-z0-9_-]{1,64}$/
+
+/**
+ * Writes who changed which account to the hub's history (hubs/{id}/audit), as the Settings page does. Never records a
+ * password. A failed write is logged and never blocks the change itself.
+ */
+async function auditUser(w: Awaited<ReturnType<typeof requireWriter>>, hubId: string | undefined, action: string, summary: string): Promise<void> {
+  const at = new Date().toISOString()
+  const hub = hubId && HUB_ID.test(hubId) ? hubId : '_global'
+  try {
+    await rtdb('PUT', `hubs/${hub}/audit/${at.slice(0, 7)}/u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, w.token, { at, by: w.session.email, action, summary: summary.slice(0, 300) })
+  } catch (e) {
+    console.error('[users] audit write failed', e instanceof Error ? e.message : e)
+  }
+}
 
 function fail(e: unknown): ActionState {
   if (e instanceof AccessError) return { error: e.message }
@@ -33,7 +50,7 @@ export async function createUserAction(input: { name: string; email: string; pas
     const role = input.role as Role
     if (!name || name.length > 120) return { error: 'Enter the full name (up to 120 characters).' }
     if (!EMAIL.test(email) || email.length > 200) return { error: 'Enter a valid email address.' }
-    if (password.length < 6 || password.length > 128) return { error: 'The temporary password needs at least 6 characters.' }
+    if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) return { error: `The temporary password needs at least ${PASSWORD_MIN} characters.` }
     if (!ROLES.includes(role)) return { error: 'Choose a role.' }
     if (role === 'super' && session.role !== 'super') throw new AccessError('Only a super admin can create another super admin.')
 
@@ -59,30 +76,49 @@ export async function createUserAction(input: { name: string; email: string; pas
     if (!res.ok || !json.localId || !json.idToken) {
       const code = json.error?.message ?? ''
       if (code.startsWith('EMAIL_EXISTS')) return { error: 'That email already has an account.' }
-      if (code.startsWith('WEAK_PASSWORD')) return { error: 'That password is too weak. Use at least 6 characters.' }
+      if (code.startsWith('WEAK_PASSWORD')) return { error: `That password is too weak. Use at least ${PASSWORD_MIN} characters.` }
       if (code.startsWith('OPERATION_NOT_ALLOWED')) return { error: 'Creating accounts is turned off in Firebase (enable Email/Password sign-in).' }
       if (code.startsWith('INVALID_EMAIL')) return { error: 'Enter a valid email address.' }
       console.error('[users] signUp failed:', code || res.status)
       return { error: 'The account could not be created. Try again.' }
     }
 
-    // The new account writes its own record, the same way the old admin does.
+    // The record is written with the signed-in admin's token, never the new account's: the database only lets a super admin or
+    // super manager write users, and letting a brand-new account write its own role would let anyone who signs up make themselves super.
     const uid = json.localId
-    await rtdb('PUT', `users/${uid}`, json.idToken, {
-      uid,
-      name,
-      email,
-      role,
-      hubId,
-      hubName,
-      active: true,
-      createdAt: new Date().toISOString(),
-      createdBy: session.email,
-    })
+    try {
+      await rtdb('PUT', `users/${uid}`, w.token, {
+        uid,
+        name,
+        email,
+        role,
+        hubId,
+        hubName,
+        active: true,
+        createdAt: new Date().toISOString(),
+        createdBy: session.email,
+      })
+    } catch (e) {
+      // Do not leave a sign-in account with no profile: it would block trying again with "email already has an account".
+      await fetch(`${env.identityBase}/v1/accounts:delete?key=${encodeURIComponent(env.firebaseApiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: json.idToken }),
+        signal: AbortSignal.timeout(15_000),
+      }).catch(() => null)
+      if (e instanceof AccessError) return { error: 'The account could not be saved because the database refused the new user record. Nothing was created. Check the database rules for users.' }
+      throw e
+    }
+
+    await auditUser(w, hubId === '_global' ? undefined : hubId, 'user.create', `Created ${role} account for ${email}.`)
 
     // Welcome email through the worker, if one is set up. A failure here never undoes the account.
+    // The reason is shown to the admin (status and the worker's short error text only; never the password).
     let mailed = false
-    if (env.pushWorkerUrl) {
+    let mailNote = ''
+    if (!env.pushWorkerUrl) {
+      mailNote = ' (no email worker is set up for this app)'
+    } else {
       try {
         const h = await headers()
         const host = h.get('x-forwarded-host') ?? h.get('host')
@@ -91,18 +127,24 @@ export async function createUserAction(input: { name: string; email: string; pas
         const mail = await fetch(`${base}send-welcome`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken: w.token, email, name, password, loginUrl: host ? `${proto}://${host}/` : '' }),
+          body: JSON.stringify({ idToken: w.token, uid, email, name, password, loginUrl: host ? `${proto}://${host}/` : '' }),
           signal: AbortSignal.timeout(15_000),
         })
-        const data = (await mail.json().catch(() => ({}))) as { sent?: number }
+        const data = (await mail.json().catch(() => ({}))) as { sent?: number; error?: unknown; id?: unknown }
         mailed = mail.ok && (data.sent ?? 0) > 0
+        if (mailed && typeof data.id === 'string' && /^[\w-]{8,64}$/.test(data.id)) mailNote = ` (email id ${data.id})`
+        if (!mailed) {
+          const why = typeof data.error === 'string' ? data.error.replace(/\s+/g, ' ').slice(0, 120) : 'no reason given'
+          mailNote = ` (the email worker answered ${mail.status}: ${why})`
+        }
       } catch {
         mailed = false
+        mailNote = ' (the email worker could not be reached)'
       }
     }
 
     revalidatePath('/dashboard/users')
-    return { success: mailed ? `Account created for ${name}. A welcome email was sent.` : `Account created for ${name}. Give them the temporary password.` }
+    return { success: mailed ? `Account created for ${name}. A welcome email was sent.${mailNote}` : `Account created for ${name}. Give them the temporary password.${mailNote}` }
   } catch (e) {
     return fail(e)
   }
@@ -128,8 +170,9 @@ async function loadTarget(w: Awaited<ReturnType<typeof requireWriter>>, uid: str
 export async function setUserActiveAction(uid: string, active: boolean): Promise<ActionState> {
   try {
     const w = await requireWriter(await getSession())
-    await loadTarget(w, uid)
+    const target = await loadTarget(w, uid)
     await rtdb('PATCH', `users/${uid}`, w.token, { active: Boolean(active) })
+    await auditUser(w, target.hubId, active ? 'user.activate' : 'user.deactivate', `${active ? 'Activated' : 'Deactivated'} ${target.email || uid}.`)
     revalidatePath('/dashboard/users')
     return { success: active ? 'User activated.' : 'User deactivated.' }
   } catch (e) {
@@ -141,7 +184,7 @@ export async function updateUserAccessAction(uid: string, input: { role: string;
   try {
     const w = await requireWriter(await getSession())
     const { session } = w
-    await loadTarget(w, uid)
+    const target = await loadTarget(w, uid)
     const role = input.role as Role
     if (!ROLES.includes(role)) return { error: 'Choose a role.' }
     if (role === 'super' && session.role !== 'super') throw new AccessError('Only a super admin can grant super admin access.')
@@ -155,6 +198,7 @@ export async function updateUserAccessAction(uid: string, input: { role: string;
       hubName = String(name) || hubId
     }
     await rtdb('PATCH', `users/${uid}`, w.token, { role, hubId, hubName })
+    await auditUser(w, hubId === '_global' ? target.hubId : hubId, 'user.access', `Changed ${target.email || uid} from ${target.role ?? 'none'} (${target.hubId ?? 'no hub'}) to ${role} (${hubId}).`)
     revalidatePath('/dashboard/users')
     return { success: 'Access updated.' }
   } catch (e) {
@@ -179,11 +223,13 @@ async function callUserWorker(w: Awaited<ReturnType<typeof requireWriter>>, payl
 export async function changeUserPasswordAction(uid: string, newPassword: string): Promise<ActionState> {
   try {
     const w = await requireWriter(await getSession())
-    await loadTarget(w, uid)
+    const target = await loadTarget(w, uid)
     const pw = String(newPassword ?? '')
-    if (pw.length < 6 || pw.length > 128) return { error: 'The password needs at least 6 characters.' }
+    if (pw.length < PASSWORD_MIN || pw.length > PASSWORD_MAX) return { error: `The password needs at least ${PASSWORD_MIN} characters.` }
     const r = await callUserWorker(w, { uid, action: 'updatePassword', newPassword: pw })
-    return r.error ? r : { success: 'Password updated.' }
+    if (r.error) return r
+    await auditUser(w, target.hubId, 'user.password', `Changed the password for ${target.email || uid}.`)
+    return { success: 'Password updated.' }
   } catch (e) {
     return fail(e)
   }
@@ -195,6 +241,7 @@ export async function deleteUserAction(uid: string): Promise<ActionState> {
     const target = await loadTarget(w, uid)
     const r = await callUserWorker(w, { uid })
     if (r.error) return r
+    await auditUser(w, target.hubId, 'user.delete', `Deleted ${target.email || uid} (${target.role ?? 'no role'}).`)
     revalidatePath('/dashboard/users')
     return { success: `${target.name || target.email || 'The user'} was deleted.` }
   } catch (e) {

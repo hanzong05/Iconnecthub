@@ -43,6 +43,33 @@ export async function updateHubAction(hubId: string, input: { name: string; loca
   }
 }
 
+/** Letters, numbers and dashes, 2 to 48 long, never starting with a dash or underscore (hubs/_global is reserved). */
+const NEW_HUB_ID = /^[a-z0-9][a-z0-9-]{1,47}$/
+
+/** Creates a hub record (hubs_meta/{id}) so it appears in the Hubs list and can be set up in Settings. Super admins only; never replaces an existing hub. */
+export async function createHubAction(input: { id: string; name: string; location: string }): Promise<ActionState & { id?: string }> {
+  try {
+    const w = await requireWriter(await getSession())
+    if (w.session.role !== 'super') return { error: 'Only a super admin can add a hub.' }
+    const name = String(input?.name ?? '').replace(/\s+/g, ' ').trim()
+    const location = String(input?.location ?? '').replace(/\s+/g, ' ').trim()
+    const id = String(input?.id ?? '').trim().toLowerCase()
+    if (!name) return { error: 'Hub name is required.' }
+    if (name.length > 120 || location.length > 120) return { error: 'Keep the name and location under 120 characters.' }
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f<>]/.test(name + location)) return { error: 'The name and location cannot contain special characters like < or >.' }
+    if (!NEW_HUB_ID.test(id)) return { error: 'The hub ID must be 2 to 48 letters, numbers or dashes, and cannot start with a dash.' }
+    if ((await rtdb('GET', `hubs_meta/${id}`, w.token)) !== null) return { error: 'A hub with that ID already exists. Choose another ID.' }
+    const at = new Date().toISOString()
+    await rtdb('PUT', `hubs_meta/${id}`, w.token, { name, ...(location ? { location } : {}), active: true, createdAt: at, createdBy: w.session.email })
+    revalidatePath('/dashboard/hubs')
+    revalidatePath('/dashboard', 'layout')
+    return { success: `Hub "${name}" created.`, id }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
 /** Saves the hub's WiFi name and password (hubs/{id}/settings/wifi), which the guest app shows. */
 export async function saveWifiAction(hubId: string, ssid: string, password: string): Promise<ActionState> {
   try {

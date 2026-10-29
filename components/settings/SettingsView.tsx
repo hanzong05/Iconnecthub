@@ -1,16 +1,18 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState, useTransition, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react'
 import {
   resetPaletteAction,
   saveContactsAction,
+  saveHouseRulesAction,
   saveHeroImageAction,
   saveHubStatusAction,
   saveLocationAction,
   saveMapDisplayAction,
   savePrivacyPolicyAction,
   saveLocalGuideAction,
+  saveMenuAction,
   saveTabOrderAction,
   saveGeofenceAction,
   saveGroupsAction,
@@ -20,11 +22,13 @@ import {
   saveGuestNotifyAction,
   saveQuickActionsAction,
   saveVisibilityAction,
+  saveMoreLabelAction,
   saveWifiAction,
 } from '@/app/actions/settings'
 import type { DraftState } from '@/app/actions/settings'
 import EmbedPreview from '@/components/preview/EmbedPreview'
 import PublishBar from './PublishBar'
+import type { MenuItem } from '@/lib/menu'
 import type { Page } from '@/lib/pages'
 import { prepareMapImage, uploadPrepared } from '@/components/pathfinder/images'
 import Icon, { type IconName } from '@/components/ui/Icon'
@@ -41,6 +45,9 @@ import {
   PALETTE_FIELDS,
   QUICK_ACTION_OPTIONS,
   VIS_ITEMS,
+  MORE_LABEL_MAX,
+  RULE_LIMITS,
+  type HubRule,
   generatePalette,
   type AuditEntry,
   type ContactKind,
@@ -92,6 +99,12 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
     if (r.conflict) setConflict(true)
     else if (r.version !== undefined && !r.error) router.refresh()
   }
+  // Messages float at the bottom and clear themselves, so they never cover the form.
+  useEffect(() => {
+    if (!msg) return
+    const t = setTimeout(() => setMsg(null), msg.error ? 9000 : 4500)
+    return () => clearTimeout(t)
+  }, [msg])
   const say: Say = (r) => {
     track(r)
     setMsg(r.error ? { text: r.error, error: true } : { text: r.success ?? 'Saved.' })
@@ -117,9 +130,13 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
   const [pal, setPal] = useState<Palette>(initial.palette)
   const [vis, setVis] = useState(initial.visibility)
   const [groups, setGroups] = useState<VisGroup[]>(initial.groups)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(initial.menuItems)
 
   const [showPass, setShowPass] = useState(false)
   const [contacts, setContacts] = useState(initial.contacts)
+  const [rules, setRules] = useState<HubRule[]>(initial.houseRules)
+  const setRule = (i: number, patch: Partial<HubRule>) => setRules((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  const moveRule = (i: number, d: -1 | 1) => setRules((r) => { const j = i + d; if (j < 0 || j >= r.length) return r; const n = [...r]; [n[i], n[j]] = [n[j], n[i]]; return n })
   const [hero, setHero] = useState(initial.heroImages)
   const [busyHero, setBusyHero] = useState<HeroSlot | null>(null)
   const [lat, setLat] = useState(initial.location.lat === null ? '' : String(initial.location.lat))
@@ -175,7 +192,21 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
   const mapSrc = validPoint ? `https://www.openstreetmap.org/export/embed.html?bbox=${lonN - 0.01}%2C${latN - 0.006}%2C${lonN + 0.01}%2C${latN + 0.006}&layer=mapnik&marker=${latN}%2C${lonN}` : null
 
   const placed = new Set(groups.flatMap((g) => g.items))
-  const unassigned = VIS_ITEMS.map((i) => i.id as string).filter((id) => !placed.has(id))
+  const unassigned = [...VIS_ITEMS.map((i) => i.id as string), ...menuItems.map((m) => m.id)].filter((id) => !placed.has(id))
+  const [names, setNames] = useState<Record<string, string>>(initial.moreLabels)
+  const [renaming, setRenaming] = useState<{ id: string; text: string } | null>(null)
+  const itemLabel = (id: string) => menuItems.find((m) => m.id === id)?.label ?? names[id] ?? label(id)
+  const isOn = (id: string) => (menuItems.find((m) => m.id === id)?.shown ?? vis[id] !== false)
+
+  /** Saves the custom items and the groups together; resolves true when the server accepted them. */
+  async function saveMenu(items: MenuItem[], nextGroups: VisGroup[]): Promise<boolean> {
+    const r = await saveMenuAction(hubId, { items, groups: nextGroups }, ver.current)
+    say(r)
+    if (r.error) return false
+    setMenuItems(items)
+    setGroups(nextGroups)
+    return true
+  }
 
   function saveGroups(next: VisGroup[]) {
     const prev = groups
@@ -203,7 +234,24 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
         return { ...g, items }
       }),
     )
+  /** Saves a built-in item's own name (empty = default name). */
+  function saveName(id: string, text: string) {
+    const t = text.replace(/\s+/g, ' ').trim()
+    const prev = names
+    setNames((n) => { const x = { ...n }; if (t) x[id] = t; else delete x[id]; return x })
+    setRenaming(null)
+    start(async () => {
+      const r = await saveMoreLabelAction(hubId, id, t, ver.current)
+      say(r)
+      if (r.error) setNames(prev)
+    })
+  }
   function toggleVis(id: string) {
+    const custom = menuItems.find((m) => m.id === id)
+    if (custom) {
+      void saveMenu(menuItems.map((m) => (m.id === id ? { ...m, shown: !m.shown } : m)), groups)
+      return
+    }
     const on = !vis[id]
     setVis((v) => ({ ...v, [id]: on }))
     start(async () => {
@@ -240,7 +288,7 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
       css={guestCss}
       preview={{
         pages,
-        settings: { ...initial, hubName: name, wifi: { ssid, password: pass }, quickActions: slots, palette: pal, visibility: vis, groups, contacts, heroImages: hero, location: { lat: lat === '' || Number.isNaN(Number(lat)) ? null : Number(lat), lon: lon === '' || Number.isNaN(Number(lon)) ? null : Number(lon) }, mapDisplay: map, privacyPolicyUrl: policy, localGuideUrl: guide, tabOrder: tabs },
+        settings: { ...initial, hubName: name, wifi: { ssid, password: pass }, quickActions: slots, palette: pal, visibility: vis, groups, contacts, heroImages: hero, location: { lat: lat === '' || Number.isNaN(Number(lat)) ? null : Number(lat), lon: lon === '' || Number.isNaN(Number(lon)) ? null : Number(lon) }, mapDisplay: map, privacyPolicyUrl: policy, localGuideUrl: guide, menuItems, houseRules: rules.filter((r) => r.title.trim()), moreLabels: names, tabOrder: tabs },
       }}
     />
   )
@@ -301,9 +349,12 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
 
   return (
     <div className="flex w-full flex-col gap-5 pb-8">
-      <div role="status" aria-live="polite" className="sticky top-0 z-10 empty:hidden">
+      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-4 bottom-5 z-40 flex justify-center empty:hidden">
         {msg && (
-          <div className={`rounded-xl border px-4 py-2.5 text-[13px] font-medium shadow-sm ${msg.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{msg.text}</div>
+          <div className={`pointer-events-auto flex max-w-md items-start gap-3 rounded-xl border px-4 py-2.5 text-[13px] font-medium shadow-lg ${msg.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+            <span className="min-w-0 flex-1">{msg.text}</span>
+            <button type="button" aria-label="Dismiss message" className="shrink-0 text-base leading-none opacity-60 hover:opacity-100" onClick={() => setMsg(null)}>×</button>
+          </div>
         )}
       </div>
 
@@ -355,12 +406,14 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
 
       {!noHub && <PublishBar hubId={hubId} draft={initial.draft} history={history} conflict={conflict} getVersion={() => ver.current} onResult={say} />}
 
-      <details className="rounded-2xl border border-line bg-surface p-4 xl:hidden">
-        <summary className="cursor-pointer text-sm font-semibold text-ink">Phone preview</summary>
-        <div className="mt-3">{preview}</div>
-      </details>
+      {!noHub && (
+        <details className="rounded-2xl border border-line bg-surface p-4 xl:hidden">
+          <summary className="cursor-pointer text-sm font-semibold text-ink">Phone preview</summary>
+          <div className="mt-3">{preview}</div>
+        </details>
+      )}
 
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start xl:gap-5">
+      <div className={noHub ? '' : 'xl:grid xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start xl:gap-5'}>
       <fieldset disabled={noHub} aria-label="Hub settings" className={`m-0 flex min-w-0 flex-col gap-4 border-0 p-0 ${noHub ? 'opacity-60' : ''}`}>
       <div className="grid items-stretch gap-5 lg:grid-cols-12">
         <div className="lg:col-span-7">
@@ -529,7 +582,28 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
         </div>
 
         <div className="flex flex-col gap-5 lg:col-span-4">
-          <Card title="Rules" hint="Link to your rules page. Leave empty to remove it.">
+          <Card title="Rules" hint="The rules guests read when they open Rules. Add each rule with its details.">
+            {rules.length === 0 && <p className="mb-2 text-xs text-ink3">None yet. Add quiet hours, check-in and check-out times, pets, fires…</p>}
+            <ul className="flex flex-col gap-3">
+              {rules.map((r, i) => (
+                <li key={i} className="flex flex-col gap-2 rounded-xl border border-line bg-surface2 p-3">
+                  <input aria-label={`Rule ${i + 1} title`} className={inputClass} placeholder="Title (Quiet hours)" value={r.title} maxLength={RULE_LIMITS.title} onChange={(e) => setRule(i, { title: e.target.value })} />
+                  <textarea aria-label={`Rule ${i + 1} details`} rows={3} className={`${inputClass} h-auto min-h-[76px] py-2 leading-snug`} placeholder="Details. Line breaks and **bold** work." value={r.details} maxLength={RULE_LIMITS.details} onChange={(e) => setRule(i, { details: e.target.value })} />
+                  <div className="flex items-center justify-end gap-2">
+                    <button type="button" aria-label={`Move rule ${i + 1} up`} disabled={pending || i === 0} className="h-9 w-9 rounded-lg border border-line2 bg-surface text-xs hover:border-brand disabled:opacity-40" onClick={() => moveRule(i, -1)}>↑</button>
+                    <button type="button" aria-label={`Move rule ${i + 1} down`} disabled={pending || i === rules.length - 1} className="h-9 w-9 rounded-lg border border-line2 bg-surface text-xs hover:border-brand disabled:opacity-40" onClick={() => moveRule(i, 1)}>↓</button>
+                    <button type="button" aria-label={`Remove rule ${i + 1}`} className="flex h-9 items-center justify-center rounded-lg bg-red-50 px-3 text-xs font-semibold text-red-600 hover:bg-red-100" onClick={() => setRules(rules.filter((_, j) => j !== i))}>Remove</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" disabled={pending || rules.length >= RULE_LIMITS.max} className={ghost} onClick={() => setRules([...rules, { title: '', details: '' }])}>+ Add rule</button>
+              <span className="text-[11px] text-ink3">{rules.length}/{RULE_LIMITS.max}</span>
+            </div>
+            <button className={`${btn} mt-3`} disabled={pending} onClick={() => run(() => saveHouseRulesAction(hubId, rules, ver.current))}>Save rules</button>
+          </Card>
+          <Card title="Rules link" hint="Optional: a link to a full rules page. Guests see it under the rules. Leave empty to remove it.">
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink2">Rules URL
               <span className="flex gap-2">
                 <input className={inputClass} placeholder="https://" value={policy} maxLength={500} onChange={(e) => setPolicy(e.target.value)} />
@@ -595,7 +669,7 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
           <div role="tablist" aria-label="Menu groups" className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-1">
             {[...groups.map((g) => ({ id: g.id, label: g.label, items: g.items })), ...(unassigned.length ? [{ id: '', label: 'Unassigned', items: unassigned }] : [])].map((g) => {
               const sel = (activeGroup === '' && g.id === '') || activeGroup === g.id
-              const onCount = g.items.filter((i) => vis[i] !== false).length
+              const onCount = g.items.filter((i) => isOn(i)).length
               return (
                 <button key={g.id || 'un'} role="tab" aria-selected={sel} onClick={() => setActiveGroup(g.id)} className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${sel ? 'border-brand bg-brand text-white' : 'border-line2 bg-surface text-ink2 hover:border-brand hover:text-brand'}`}>
                   {g.label} <span className={sel ? 'text-white/80' : 'text-ink3'}>{onCount}/{g.items.length}</span>
@@ -633,11 +707,25 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
                   {ids.map((id, idx) => (
                     <li key={id} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate text-[13px] font-semibold text-ink" title={label(id)}>{label(id)}</span>
-                        <Switch name={`Show ${label(id)}`} on={vis[id] !== false} disabled={pending} onChange={() => toggleVis(id)} />
+                        <span className="min-w-0 truncate text-[13px] font-semibold text-ink" title={itemLabel(id)}>{itemLabel(id)}</span>
+                        <Switch name={`Show ${itemLabel(id)}`} on={isOn(id)} disabled={pending} onChange={() => toggleVis(id)} />
                       </div>
+                      {!menuItems.some((m) => m.id === id) && (
+                        renaming?.id === id ? (
+                          <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); saveName(id, renaming.text) }}>
+                            <input aria-label={`Name for ${label(id)}`} autoFocus className="h-8 min-w-0 flex-1 rounded-lg border border-line2 bg-surface2 px-2 text-xs" value={renaming.text} maxLength={MORE_LABEL_MAX} placeholder={label(id)} onChange={(e) => setRenaming({ id, text: e.target.value })} onKeyDown={(e) => e.key === 'Escape' && setRenaming(null)} />
+                            <button type="submit" disabled={pending} className="h-8 rounded-lg border border-line2 bg-surface px-2 text-xs font-semibold hover:border-brand disabled:opacity-40">Save</button>
+                            <button type="button" className="h-8 rounded-lg border border-line2 bg-surface px-2 text-xs hover:border-brand" onClick={() => setRenaming(null)}>Cancel</button>
+                          </form>
+                        ) : (
+                          <div className="flex items-center gap-2 text-[11px] text-ink3">
+                            <button type="button" disabled={pending} className="font-semibold text-brand hover:underline disabled:opacity-40" aria-label={`Rename ${itemLabel(id)}`} onClick={() => setRenaming({ id, text: names[id] ?? '' })}>Rename</button>
+                            {names[id] && <span className="truncate">Default: {label(id)}</span>}
+                          </div>
+                        )
+                      )}
                       <div className="flex items-center gap-1.5">
-                        <select aria-label={`Group for ${label(id)}`} className="h-8 min-w-0 flex-1 rounded-lg border border-line2 bg-surface2 px-1.5 text-xs" value={cur?.id ?? ''} onChange={(e) => moveItem(id, e.target.value)}>
+                        <select aria-label={`Group for ${itemLabel(id)}`} className="h-8 min-w-0 flex-1 rounded-lg border border-line2 bg-surface2 px-1.5 text-xs" value={cur?.id ?? ''} onChange={(e) => moveItem(id, e.target.value)}>
                           <option value="">Unassigned</option>
                           {groups.map((g) => (
                             <option key={g.id} value={g.id}>{g.label}</option>
@@ -645,8 +733,8 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
                         </select>
                         {cur && (
                           <>
-                            <button aria-label={`Move ${label(id)} up`} disabled={pending || idx === 0} className="h-8 w-8 rounded-lg border border-line2 bg-surface text-xs hover:border-brand disabled:opacity-40" onClick={() => shift(cur.id, id, -1)}>↑</button>
-                            <button aria-label={`Move ${label(id)} down`} disabled={pending || idx === ids.length - 1} className="h-8 w-8 rounded-lg border border-line2 bg-surface text-xs hover:border-brand disabled:opacity-40" onClick={() => shift(cur.id, id, 1)}>↓</button>
+                            <button aria-label={`Move ${itemLabel(id)} up`} disabled={pending || idx === 0} className="h-8 w-8 rounded-lg border border-line2 bg-surface text-xs hover:border-brand disabled:opacity-40" onClick={() => shift(cur.id, id, -1)}>↑</button>
+                            <button aria-label={`Move ${itemLabel(id)} down`} disabled={pending || idx === ids.length - 1} className="h-8 w-8 rounded-lg border border-line2 bg-surface text-xs hover:border-brand disabled:opacity-40" onClick={() => shift(cur.id, id, 1)}>↓</button>
                           </>
                         )}
                       </div>
@@ -659,7 +747,7 @@ export default function SettingsView({ hubId, initial, hubs, history, noHub = fa
         })()}
       </Card>
       </fieldset>
-      <aside aria-label="Phone preview" className="sticky top-4 hidden xl:block">{preview}</aside>
+      {!noHub && <aside aria-label="Phone preview" className="sticky top-4 hidden xl:block">{preview}</aside>}
       </div>
 
       <p role="note" className="rounded-xl border border-line bg-surface2 px-4 py-2.5 text-xs text-ink2">{noHub ? 'Select a hub to see and edit its settings.' : 'Changes are saved when you press a Save button (switches and the guest menu save at once) and guests see them right away.'}</p>

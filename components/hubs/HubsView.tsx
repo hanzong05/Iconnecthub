@@ -6,6 +6,7 @@ import Icon from '@/components/ui/Icon'
 import { useRouter } from 'next/navigation'
 import Modal from '@/components/ui/Modal'
 import EditHubForm from './EditHubForm'
+import AddHubForm from './AddHubForm'
 import StatTile from '@/components/ui/StatTile'
 import type { HubCard } from '@/lib/data/hubs'
 import RemoteImg from '@/components/ui/RemoteImg'
@@ -73,6 +74,7 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
   const [sort, setSort] = useState<Sort>('name')
   const [view, setView] = useState<View>('grid')
   const [editing, setEditing] = useState<HubCard | null>(null)
+  const [adding, setAdding] = useState(false)
   const [menu, setMenu] = useState<{ hub: HubCard; style: React.CSSProperties } | null>(null)
   const [flash, setFlash] = useState('')
 
@@ -183,6 +185,10 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
           </select>
           <Icon name="chevron" className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink2" />
         </div>
+        <button type="button" onClick={() => setAdding(true)} className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white transition-colors hover:bg-brand-dim">
+          <span aria-hidden="true" className="text-lg leading-none">+</span>
+          Add hub
+        </button>
         <div role="group" aria-label="View" className="flex overflow-hidden rounded-xl border border-line2">
           {(['grid', 'list'] as const).map((v) => (
             <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`flex h-11 items-center gap-2 px-4 text-[13px] font-semibold ${view === v ? 'bg-emerald-700 text-white' : 'bg-surface text-ink2 hover:bg-surface2'}`}>
@@ -277,6 +283,19 @@ export default function HubsView({ hubs, canUpload }: { hubs: HubCard[]; canUplo
           </div>
         </>
       )}
+
+      <Modal open={adding} onClose={() => setAdding(false)} title="Add Hub" subtitle="Creates an empty hub you can set up in Settings. Good for testing.">
+        {adding && (
+          <AddHubForm
+            onCancel={() => setAdding(false)}
+            onCreated={(n) => {
+              setAdding(false)
+              setFlash(`Hub "${n}" created.`)
+              router.refresh()
+            }}
+          />
+        )}
+      </Modal>
 
       <Modal open={editing !== null} onClose={() => setEditing(null)} title="Edit Hub Details" subtitle="Update how this hub appears in the admin and the guest app.">
         {editing && (

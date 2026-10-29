@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { VIS_ITEMS, type HubSettings } from '@/lib/settings-catalog'
+import { VIS_ITEMS, houseRulesPage, type HubSettings } from '@/lib/settings-catalog'
 import { parseSettings } from '@/lib/settings-parse'
 import { formatText, telLink, type Block, type Page } from '@/lib/pages'
 import { useFeed } from './data'
@@ -7,11 +7,13 @@ import { ANN_CAT, DEFAULT_MORE_ORDER, ICON_THEMES, MORE_ITEMS } from './hub-asse
 import { BELL, CLOCK, DISCOVER_PIN, NAV_ICONS, NAV_LABEL, PHONE_PATH, PIN, QA_CLASS, QA_ICONS } from './hub-icons'
 import { dateRangeLabel, dateStrip, eventsOnDate, hubEvents, isoDate, liveAnnouncements, menuGroups, publishedPages, tabsFor, timeAgo, upcomingEvents, wxCode, type GuestAnnouncement, type HubEvent, type TabId } from './model'
 import { themeCss } from './theme'
+import { isMenuId, menuIcon, type MenuItem } from '@/lib/menu'
+import { samplePage } from '@/lib/template'
 
 export interface Config { hubId: string; dbUrl: string; classicUrl: string }
 /** Admin preview: the app is drawn from values being edited instead of the database. Announcements and events still come from the hub's database address when one is given. */
 export interface Preview { settings: HubSettings; pages: Record<string, Page>; tab?: TabId; openPage?: string }
-type Overlay = null | { kind: 'contact' } | { kind: 'wifi' } | { kind: 'notif' } | { kind: 'page'; id: string } | { kind: 'event'; id: string }
+type Overlay = null | { kind: 'contact' } | { kind: 'wifi' } | { kind: 'notif' } | { kind: 'page'; id: string } | { kind: 'sheet'; id: string } | { kind: 'event'; id: string }
 
 const QA_LABEL: Record<string, string> = { map: 'Map', events: 'Events', contact: 'Contact Us', wifi: 'WiFi', rules: 'Rules' }
 const GRADIENT = 'linear-gradient(135deg,#6b7280,#374151)'
@@ -29,6 +31,7 @@ export default function App({ config, preview }: { config: Config; preview?: Pre
   const pagesFeed = useFeed(dbUrl, `hubs/${hubId}/pages`, 30_000, live)
   const pages = useMemo(() => (preview ? preview.pages : publishedPages(pagesFeed.data)), [preview, pagesFeed.data])
   const [tab, setTab] = useState<TabId>(preview?.tab ?? 'home')
+  const [previewNote, setPreviewNote] = useState('')
   const [overlay, setOverlay] = useState<Overlay>(preview?.openPage ? { kind: 'page', id: preview.openPage } : null)
   const [day, setDay] = useState(() => isoDate(new Date()))
   const [read, setRead] = useState<Set<string>>(() => loadRead(hubId, !!preview))
@@ -57,6 +60,13 @@ export default function App({ config, preview }: { config: Config; preview?: Pre
   const events = hubEvents(acts.data)
   const unread = announcements.filter((a) => !read.has(a.id)).length
   const external = (href: string) => (preview ? undefined : href)
+  // The admin preview never leaves the page; tapping an address says where guests would go instead of doing nothing.
+  const previewLink = preview ? (href: string) => setPreviewNote(`Guests will open ${href.replace(/^https:\/\//i, '')}`) : undefined
+  useEffect(() => {
+    if (!previewNote) return
+    const t = setTimeout(() => setPreviewNote(''), 3500)
+    return () => clearTimeout(t)
+  }, [previewNote])
   const classic = classicUrl && !preview ? classicUrl : ''
   const guideUrl = https(st.localGuideUrl)
 
@@ -69,22 +79,33 @@ export default function App({ config, preview }: { config: Config; preview?: Pre
   }
   /** What a menu item or quick action does: open the page the manager published, a built-in sheet, or the old hub for features not in this app yet. */
   const itemAction = (id: string): { run?: () => void; href?: string } => {
+    const custom = st.menuItems.find((m) => m.id === id)
+    if (custom) {
+      if (custom.kind === 'link') return custom.url ? { href: custom.url } : {}
+      if (custom.kind === 'sheet') return { run: () => setOverlay({ kind: 'sheet', id }) }
+      return { run: () => setOverlay({ kind: 'page', id }) }
+    }
     if (id === 'map') return { run: () => setTab('map') }
     if (id === 'events') return { run: () => setTab('events') }
     if (id === 'contact') return { run: () => setOverlay({ kind: 'contact' }) }
+    if (id === 'rules' && st.houseRules.length) return { run: () => setOverlay({ kind: 'page', id: 'rules' }) }
     if (id === 'wifi') return { run: () => setOverlay({ kind: 'wifi' }) }
     if (pages[id]) return { run: () => setOverlay({ kind: 'page', id }) }
     if (id === 'rules' && st.privacyPolicyUrl) return { href: st.privacyPolicyUrl }
+    if (preview) return { run: () => setPreviewNote('Guests open the hub’s classic page for this item. Add a page in Pages to show it inside the app.') }
     return classic ? { href: classic } : {}
   }
 
   const tabs = tabsFor(st.tabOrder)
-  const page = overlay?.kind === 'page' ? pages[overlay.id] : undefined
+  // In the admin preview a new details page has no content yet; show it empty so the Super Admin can see where it leads.
+  const page = overlay?.kind === 'page' ? (overlay.id === 'rules' && st.houseRules.length ? houseRulesPage(st.houseRules, st.privacyPolicyUrl) : undefined) ?? pages[overlay.id] ?? (preview && isMenuId(overlay.id) ? previewPage(st.menuItems.find((m) => m.id === overlay.id)) : undefined) : undefined
+  const sheetItem = overlay?.kind === 'sheet' ? st.menuItems.find((m) => m.id === overlay.id && m.kind === 'sheet') : undefined
   const style = { '--bg': st.palette.bg, '--blue': st.palette.primary } as CSSProperties
 
   return (
     <div className="bs-app" id="app" style={style}>
       <style>{themeCss(st.palette)}{EXTRA_CSS}</style>
+      {previewNote && <div role="status" style={{ position: 'absolute', left: 12, right: 12, bottom: 76, zIndex: 60, padding: '9px 12px', borderRadius: 10, background: '#111827', color: '#fff', fontSize: 12, fontWeight: 600, textAlign: 'center', pointerEvents: 'none', overflowWrap: 'anywhere' }}>{previewNote}</div>}
       <div className="page-content" id="pageContent">
         <div className={`tab-panel${tab === 'home' ? ' active' : ''}`} id="tab-home">
           <div className="hero" id="homeHero">
@@ -208,15 +229,16 @@ export default function App({ config, preview }: { config: Config; preview?: Pre
           <div className="more-hero" id="moreHero"><div className="more-hero-bg" id="moreHeroBg" style={bg(st.heroImages.more)} /></div>
           <div className="more-dash-body">
             <div className="more-body" id="moreBody">
-              <MoreMenu st={st} itemAction={itemAction} external={external} pages={pages} />
+              <MoreMenu st={st} itemAction={itemAction} external={external} onPreviewLink={previewLink} pages={pages} showEmptyPages={!!preview} />
             </div>
           </div>
         </div>
       </div>
 
       <ContactPage st={st} active={overlay?.kind === 'contact'} onClose={() => setOverlay(null)} />
-      {overlay?.kind === 'page' && page && overlay.id !== 'reservations' && <PagePanel page={page} fallback={VIS_ITEMS.find((i) => i.id === overlay.id)?.label ?? ''} onClose={() => setOverlay(null)} />}
+      {overlay?.kind === 'page' && page && overlay.id !== 'reservations' && <PagePanel page={page} fallback={st.menuItems.find((m) => m.id === overlay.id)?.label ?? st.moreLabels?.[overlay.id] ?? VIS_ITEMS.find((i) => i.id === overlay.id)?.label ?? ''} onClose={() => setOverlay(null)} />}
       {overlay?.kind === 'page' && page && overlay.id === 'reservations' && <ReserveSheet page={page} external={external} onClose={() => setOverlay(null)} />}
+      {sheetItem && <LinkSheet item={sheetItem} external={external} onClose={() => setOverlay(null)} canOpen={(id) => !!pages[id] || !!preview} onOpenPage={(id) => setOverlay({ kind: 'page', id })} />}
       {overlay?.kind === 'wifi' && <WifiModal st={st} onClose={() => setOverlay(null)} />}
       {overlay?.kind === 'notif' && <NotifSheet anns={announcements} read={read} now={now} onClose={() => setOverlay(null)} />}
       {overlay?.kind === 'event' && <EventModal event={events.find((e) => e.id === overlay.id)} onClose={() => setOverlay(null)} />}
@@ -336,22 +358,39 @@ function EventsDay({ events, day, today, onOpen }: { events: HubEvent[]; day: st
   )
 }
 
-function MoreMenu({ st, itemAction, external, pages }: { st: HubSettings; itemAction: (id: string) => { run?: () => void; href?: string }; external: (h: string) => string | undefined; pages: Record<string, Page> }) {
+function MoreMenu({ st, itemAction, external, onPreviewLink, pages, showEmptyPages }: { st: HubSettings; itemAction: (id: string) => { run?: () => void; href?: string }; external: (h: string) => string | undefined; onPreviewLink?: (h: string) => void; pages: Record<string, Page>; showEmptyPages: boolean }) {
   const groups = menuGroups(st)
+  const custom = new Map(st.menuItems.map((m) => [m.id, m]))
+  /** A custom item: its own name and icon, whatever it opens. */
+  const customRow = (m: MenuItem) => {
+    const ic = menuIcon(m.icon)
+    const act = itemAction(m.id)
+    const inner = (
+      <>
+        <div className="more-item-icon" style={{ background: ic.bg }}><SVG html={`<svg viewBox="0 0 24 24" fill="none" stroke="${ic.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic.svg}</svg>`} /></div>
+        <div className="more-item-text"><div className="more-item-title">{m.label}</div></div>
+        <div className="more-item-arrow">›</div>
+      </>
+    )
+    return act.href ? <a key={m.id} className="more-item" href={external(act.href)} target="_blank" rel="noopener noreferrer" onClick={() => onPreviewLink?.(act.href!)}>{inner}</a> : <div key={m.id} className="more-item" role="button" tabIndex={0} onClick={act.run} onKeyDown={(e) => e.key === 'Enter' && act.run?.()}>{inner}</div>
+  }
   const row = (id: string) => {
+    const c = custom.get(id)
+    // Guests never see a details page nobody has filled in yet; the admin preview does, so the layout can be checked.
+    if (c) return c.kind === 'page' && !pages[id] && !showEmptyPages ? null : customRow(c)
     const d = MORE_ITEMS[id]
     if (!d) return null
     const act = itemAction(id)
     const inner = (
       <>
         <div className="more-item-icon"><SVG html={d.icon} /></div>
-        <div className="more-item-text"><div className="more-item-title">{pages[id] ? pages[id].title || d.title : d.title}</div></div>
+        <div className="more-item-text"><div className="more-item-title">{st.moreLabels?.[id] || (pages[id] ? pages[id].title || d.title : d.title)}</div></div>
         <div className="more-item-arrow">›</div>
       </>
     )
-    return act.href ? <a key={id} className="more-item" href={external(act.href)} target="_blank" rel="noopener noreferrer">{inner}</a> : <div key={id} className="more-item" role="button" tabIndex={0} onClick={act.run} onKeyDown={(e) => e.key === 'Enter' && act.run?.()}>{inner}</div>
+    return act.href ? <a key={id} className="more-item" href={external(act.href)} target="_blank" rel="noopener noreferrer" onClick={() => onPreviewLink?.(act.href!)}>{inner}</a> : <div key={id} className="more-item" role="button" tabIndex={0} onClick={act.run} onKeyDown={(e) => e.key === 'Enter' && act.run?.()}>{inner}</div>
   }
-  const visible = (ids: string[]) => ids.filter((id) => MORE_ITEMS[id] && st.visibility[id] !== false)
+  const visible = (ids: string[]) => ids.filter((id) => custom.has(id) || (MORE_ITEMS[id] && st.visibility[id] !== false))
   if (!groups.length) return <div className="more-section">{visible(DEFAULT_MORE_ORDER).map(row)}</div>
   return (
     <>
@@ -568,4 +607,42 @@ function EventModal({ event, onClose }: { event: HubEvent | undefined; onClose: 
       </div>
     </div>
   )
+}
+
+/** An items sheet: a short list of links, drawn like the other bottom sheets. */
+function LinkSheet({ item, external, onClose, canOpen, onOpenPage }: { item: MenuItem; external: (h: string) => string | undefined; onClose: () => void; canOpen: (pageId: string) => boolean; onOpenPage: (pageId: string) => void }) {
+  const ic = menuIcon(item.icon)
+  return (
+    <div className="notif-overlay open" role="dialog" aria-modal="true" aria-label={item.label} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="notif-sheet">
+        <div className="notif-sheet-header"><div className="notif-sheet-title">{item.label}</div><button type="button" className="notif-close-btn" aria-label="Close" onClick={onClose}>{'\u2715'}</button></div>
+        <div style={{ padding: '8px 0 4px' }}>
+          {item.rows.filter((r) => !r.page || canOpen(r.page)).map((r, i) => {
+            const page = r.page
+            const Row = page ? 'div' : 'a'
+            const props = page ? { role: 'button', tabIndex: 0, onClick: () => onOpenPage(page), onKeyDown: (e: React.KeyboardEvent) => e.key === 'Enter' && onOpenPage(page) } : { href: external(r.url), target: '_blank', rel: 'noopener noreferrer' }
+            return (
+            <Row key={i} {...props} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: '1px solid #f3f4f6', textDecoration: 'none', color: 'inherit' }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: ic.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><SVG html={`<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="${ic.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic.svg}</svg>`} /></div>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: '#111827' }}>{r.label}</div>
+              <div style={{ color: '#9ca3af', fontSize: 20 }}>{'\u203a'}</div>
+            </Row>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Admin preview only: a page nobody has filled in yet shows its layout with made-up content, or stays empty when it has none. */
+function previewPage(item: MenuItem | undefined): Page {
+  if (item?.template) {
+    try {
+      return samplePage(item.template, item.label)
+    } catch {
+      /* fall through to an empty page */
+    }
+  }
+  return { title: '', subtitle: '', banner: '', blocks: [] }
 }

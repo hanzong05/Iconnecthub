@@ -1,5 +1,6 @@
 /** Turns the raw settings stored for one hub into the typed shape the Settings page uses. Pure: no database access. */
-import { DEFAULT_QUICK, HERO_IDS, MAP_MODES, QUICK_IDS, VIS_IDS, readGroups, readPalette, readTabOrder, type HeroSlot, type HubSettings, type MapMode } from './settings-catalog'
+import { readMenuItems } from './menu'
+import { DEFAULT_QUICK, HERO_IDS, MAP_MODES, QUICK_IDS, VIS_IDS, readGroups, readHouseRules, readMoreLabels, readPalette, readTabOrder, type HeroSlot, type HubSettings, type MapMode } from './settings-catalog'
 
 export type ParsedSettings = Omit<HubSettings, 'draft'>
 
@@ -52,6 +53,9 @@ export function parseSettings(raw: unknown, metaRaw: unknown, hubId: string, hub
     mapDisplay: { mode, campgroundId: s(md.campgroundId, 64), embedUrl: https(md.embedUrl), imageUrl: https(md.imageUrl) },
     privacyPolicyUrl: https(o.privacyPolicyUrl),
     localGuideUrl: https(o.localGuideUrl),
+    menuItems: readMenuItems(o.menuItems),
+    houseRules: readHouseRules(o.houseRules),
+    moreLabels: readMoreLabels(o.moreLabels),
     tabOrder: readTabOrder(o.tabOrder),
     hubName,
     wifi: { ssid: s(wifi.ssid), password: s(wifi.password) },

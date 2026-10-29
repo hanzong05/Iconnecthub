@@ -1,6 +1,7 @@
 /** Pure helpers for the guest app: what to show, from the raw database values. No React, no network. */
 import { VIS_ITEMS, type HubSettings } from '@/lib/settings-catalog'
 import { PAGE_IDS, readPage, type Page } from '@/lib/pages'
+import { isMenuId } from '@/lib/menu'
 
 type Row = Record<string, unknown>
 const rows = (v: unknown): [string, Row][] => (v && typeof v === 'object' ? (Object.entries(v as Row).filter(([, r]) => r && typeof r === 'object') as [string, Row][]) : [])
@@ -114,10 +115,17 @@ export function tabsFor(order: string[]): TabId[] {
 export interface MenuItem { id: string; label: string }
 export interface MenuGroup { id: string; label: string; items: MenuItem[] }
 /** The More menu: the hub's groups, with hidden items removed and empty groups dropped. */
-export function menuGroups(settings: Pick<HubSettings, 'groups' | 'visibility'>): MenuGroup[] {
-  const label = (id: string) => VIS_ITEMS.find((i) => i.id === id)?.label ?? id
+export function menuGroups(settings: Pick<HubSettings, 'groups' | 'visibility' | 'menuItems'>): MenuGroup[] {
+  const custom = new Map((settings.menuItems ?? []).map((m) => [m.id, m]))
+  const label = (id: string) => custom.get(id)?.label ?? VIS_ITEMS.find((i) => i.id === id)?.label ?? id
+  // A custom item shows when the Super Admin has not hidden it; a link with no address or a sheet with no rows has nothing to open.
+  const usable = (id: string) => {
+    const c = custom.get(id)
+    if (!c) return isMenuId(id) ? false : settings.visibility[id] !== false
+    return c.shown && (c.kind === 'link' ? !!c.url : c.kind === 'sheet' ? c.rows.length > 0 : true)
+  }
   return settings.groups
-    .map((g) => ({ id: g.id, label: g.label, items: g.items.filter((id) => settings.visibility[id] !== false).map((id) => ({ id, label: label(id) })) }))
+    .map((g) => ({ id: g.id, label: g.label, items: g.items.filter(usable).map((id) => ({ id, label: label(id) })) }))
     .filter((g) => g.items.length > 0)
 }
 
@@ -147,7 +155,7 @@ export function validDb(url: string | null): string | null {
 export function publishedPages(raw: unknown): Record<string, Page> {
   const out: Record<string, Page> = {}
   if (!raw || typeof raw !== 'object') return out
-  for (const id of PAGE_IDS) {
+  for (const id of Object.keys(raw as object).filter((k) => PAGE_IDS.includes(k) || isMenuId(k))) {
     const page = readPage((raw as Record<string, unknown>)[id])
     if (page && page.blocks.length > 0) out[id] = page
   }

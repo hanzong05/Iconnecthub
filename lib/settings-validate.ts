@@ -1,5 +1,5 @@
 /** Pure checks for the Settings page, shared by the server actions and their tests. */
-import { CONTACT_KINDS, HERO_IDS, MAP_MODES, MAX_EXTRA_CONTACTS, TAB_IDS, type ExtraContact, type HubContacts, type HubLocation, type HubMapDisplay } from './settings-catalog'
+import { CONTACT_KINDS, HERO_IDS, MAP_MODES, MAX_EXTRA_CONTACTS, RULE_LIMITS, TAB_IDS, type ExtraContact, type HubContacts, type HubRule, type HubLocation, type HubMapDisplay } from './settings-catalog'
 
 export class SettingsInvalid extends Error {}
 
@@ -60,6 +60,27 @@ export function parseContacts(v: unknown): HubContacts {
   if (phone && !PHONE.test(phone)) throw new SettingsInvalid('That phone number does not look right.')
   if (email && !EMAIL.test(email)) throw new SettingsInvalid('That email address does not look right.')
   return { extra: parseExtraContacts(o.extra), name, phone, email, address, website: httpsUrl(o.website, 'The website') }
+}
+
+// eslint-disable-next-line no-control-regex
+const BAD_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+
+/** Checks the rules about to be saved. Each needs a title; details are optional. Throws a plain-language message for the first problem. */
+export function parseHouseRules(v: unknown): HubRule[] {
+  if (v === undefined || v === null) return []
+  if (!Array.isArray(v)) throw new SettingsInvalid('The rules are not valid.')
+  if (v.length > RULE_LIMITS.max) throw new SettingsInvalid(`Add at most ${RULE_LIMITS.max} rules.`)
+  return v.map((x, i) => {
+    const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
+    if ((o.title !== undefined && typeof o.title !== 'string') || (o.details !== undefined && typeof o.details !== 'string')) throw new SettingsInvalid(`Rule ${i + 1}: the title and details must be text.`)
+    const title = String(o.title ?? '').replace(/\s+/g, ' ').trim()
+    const details = String(o.details ?? '').replace(/\r\n?/g, '\n').trim()
+    if (!title) throw new SettingsInvalid(`Rule ${i + 1}: add a title such as "Quiet hours".`)
+    if (title.length > RULE_LIMITS.title) throw new SettingsInvalid(`Rule ${i + 1}: the title is too long (${RULE_LIMITS.title} characters at most).`)
+    if (details.length > RULE_LIMITS.details) throw new SettingsInvalid(`Rule ${i + 1} (${title}): the details are too long (${RULE_LIMITS.details} characters at most).`)
+    if (BAD_CHARS.test(title + details)) throw new SettingsInvalid(`Rule ${i + 1} (${title}): remove the special characters.`)
+    return { title, details }
+  })
 }
 
 export function parseLocation(v: unknown): { lat: number; lon: number } | null {
