@@ -1,0 +1,62 @@
+{
+  "rules": {
+    "hubs_meta": {
+      ".read": true,
+      "$hubId": {
+        ".write": "auth != null"
+      }
+    },
+    "users": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || root.child('users').child(auth.uid).child('role').val() === 'super_manager')"
+    },
+    "_global": {
+      "parkhub_analytics": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "hubs": {
+      "$hubId": {
+        "guests": {
+          ".read": true,
+          ".write": true
+        },
+        "chats": {
+          ".read": true,
+          ".write": true
+        },
+        "announcements": {
+          ".read": true,
+          ".write": "auth != null"
+        },
+        "activities": {
+          ".read": true,
+          ".write": "auth != null"
+        },
+        "analytics": {
+          ".read": true,
+          ".write": true
+        },
+        "settings": {
+          ".read": true,
+          ".write": "auth != null"
+        }
+      }
+    },
+    "hub_intake": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": true
+    },
+    "hub_intake_v2": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": true
+    },
+    "hub_intake_drafts": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": true
+    },
+    ".read": false,
+    ".write": false
+  }
+}

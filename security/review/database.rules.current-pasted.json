@@ -1,0 +1,104 @@
+{
+  "rules": {
+    "hubs_meta": {
+      ".read": true,
+      "$hubId": {
+        ".write": "auth != null"
+      }
+    },
+    "users": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || root.child('users').child(auth.uid).child('role').val() === 'super_manager')"
+    },
+    "_global": {
+      "parkhub_analytics": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "hubs": {
+      "$hubId": {
+        "guests": {
+          ".read": "auth != null",
+          "$guestId": {
+            ".read": true,
+            ".write": true
+          }
+        },
+        "chats": {
+          ".read": "auth != null",
+          "$sessionId": {
+            ".read": true,
+            ".write": true
+          }
+        },
+        "announcements": {
+          ".read": true,
+          ".write": "auth != null"
+        },
+        "activities": {
+          ".read": true,
+          ".write": "auth != null"
+        },
+        "analytics": {
+          ".read": true,
+          ".write": true
+        },
+        "settings": {
+          ".read": true,
+          ".write": "auth != null"
+        },
+        "pathfinder": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'"
+        },
+        "settingsDraft": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'"
+        },
+        "releases": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'"
+        },
+        "releaseCurrent": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'"
+        },
+        "audit": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'super'",
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))"
+        },
+        "notifyLog": {
+          ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))",
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))"
+        },
+        "pages": {
+          ".read": true,
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))"
+        },
+        "pagesDraft": {
+          ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))",
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))"
+        },
+        "pageHistory": {
+          ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))",
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'super' || ((root.child('users').child(auth.uid).child('role').val() === 'manager' || root.child('users').child(auth.uid).child('role').val() === 'super_manager') && root.child('users').child(auth.uid).child('hubId').val() === $hubId))"
+        }
+      }
+    },
+    "hub_intake": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": true
+    },
+    "hub_intake_v2": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": true
+    },
+    "hub_intake_drafts": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": true
+    },
+    ".read": false,
+    ".write": false
+  }
+}

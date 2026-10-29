@@ -1,0 +1,91 @@
+{
+  "hubs_meta": {
+    "stg-hub-a": {
+      "name": "Staging Hub A",
+      "location": "Test City, GA",
+      "active": true,
+      "timezone": "America/New_York"
+    },
+    "stg-hub-b": {
+      "name": "Staging Hub B",
+      "location": "Test City, CA",
+      "active": true,
+      "timezone": "America/Los_Angeles"
+    },
+    "stg-hub-inactive": {
+      "name": "Staging Hub Inactive",
+      "location": "Test City, TX",
+      "active": false,
+      "timezone": "America/Chicago"
+    },
+    "stg-hub-no-tz": {
+      "name": "Staging Hub Without Time Zone",
+      "location": "Test City, FL",
+      "active": true
+    }
+  },
+  "users": {
+    "RmGRBdFbqEbZuQW8AhRvDlRhxSI2": {
+      "role": "super",
+      "email": "stg1@staging.invalid",
+      "active": true
+    },
+    "Fs9DohRYBnhVFz4WXoJwG6fxMBg2": {
+      "role": "super_manager",
+      "hubId": "stg-hub-a",
+      "email": "stg2@staging.invalid",
+      "active": true
+    },
+    "g2WV6Z1Ow6UzLvc0FKStUdScDbh2": {
+      "role": "manager",
+      "hubId": "stg-hub-a",
+      "email": "stg3@staging.invalid",
+      "active": true
+    },
+    "6Yxqr6wXWKgLSLo9bteN4HfcYNH2": {
+      "role": "manager",
+      "hubId": "stg-hub-b",
+      "email": "stg4@staging.invalid",
+      "active": true
+    },
+    "6mSxCjGZzehCtnqdpm9eVh0LjQT2": {
+      "role": "manager",
+      "hubId": "stg-hub-a",
+      "email": "stg5@staging.invalid",
+      "active": false
+    }
+  },
+  "hubs": {
+    "stg-hub-a": {
+      "settings": {
+        "wifi": {
+          "ssid": "stg-wifi"
+        },
+        "guestNotifications": true
+      },
+      "guests": {
+        "stgtok1": {
+          "firstName": "Test",
+          "lastName": "GuestA",
+          "email": "guest-a@staging.invalid",
+          "arrivalDate": "2026-10-28",
+          "departureDate": "2026-11-05"
+        }
+      }
+    },
+    "stg-hub-b": {
+      "settings": {
+        "wifi": {
+          "ssid": "stg-wifi-b"
+        }
+      },
+      "guests": {
+        "stgtokB": {
+          "firstName": "Test",
+          "lastName": "GuestB",
+          "email": "guest-b@staging.invalid"
+        }
+      }
+    }
+  }
+}
