@@ -23,6 +23,7 @@ interface SignInResponse {
 }
 
 interface Profile {
+  email?: string
   name?: string
   role?: string
   hubName?: string
@@ -60,10 +61,19 @@ export async function signInWithFirebase(email: string, password: string): Promi
     return { ok: false, reason: 'invalid', detail: `HTTP ${res.status} ${code || '(no code)'}` }
   }
 
-  // Role and hub live in the Realtime Database at users/{uid}, as in the hub admin.
+  return {
+    ok: true,
+    user: await loadUser(data.localId, data.idToken, data.email ?? email),
+    refreshToken: data.refreshToken ?? '',
+  }
+}
+
+/** Role and hub live in the Realtime Database at users/{uid}, as in the hub admin. */
+async function loadUser(uid: string, idToken: string, email: string, preferProfileEmail = false): Promise<AuthUser> {
+  const env = getAuthEnv()
   let profile: Profile = {}
   try {
-    const p = await fetch(`${env.firebaseDatabaseUrl}/users/${encodeURIComponent(data.localId)}.json?auth=${encodeURIComponent(data.idToken)}`, {
+    const p = await fetch(`${env.firebaseDatabaseUrl}/users/${encodeURIComponent(uid)}.json?auth=${encodeURIComponent(idToken)}`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),
     })
@@ -71,19 +81,120 @@ export async function signInWithFirebase(email: string, password: string): Promi
   } catch {
     // fall through with the least-privileged default
   }
-
   return {
-    ok: true,
-    user: {
-      id: data.localId,
-      email: data.email ?? email,
-      name: profile.name ?? null,
-      // Least privilege: a user with no profile is a manager, not a super admin.
-      role: profile.role ?? 'manager',
-      hubName: profile.hubName ?? profile.hubId ?? null,
-      hubId: profile.hubId ?? null,
-    },
-    refreshToken: data.refreshToken ?? '',
+    id: uid,
+    // A social sign-in reports the provider's email, which may differ from the account's: the session keeps the account's.
+    email: (preferProfileEmail && profile.email) || email,
+    name: profile.name ?? null,
+    // Least privilege: a user with no profile is a manager, not a super admin.
+    role: profile.role ?? 'manager',
+    hubName: profile.hubName ?? profile.hubId ?? null,
+    hubId: profile.hubId ?? null,
+  }
+}
+
+export type SocialProviderId = 'google.com' | 'apple.com'
+
+export type SocialSignInResult = SignInResult | { ok: false; reason: 'not_linked' }
+
+interface IdpResponse extends SignInResponse {
+  isNewUser?: boolean
+  needConfirmation?: boolean
+}
+
+async function idpCall(path: string, body: object): Promise<{ res: Response; data: Record<string, unknown> }> {
+  const env = getAuthEnv()
+  const res = await fetch(`${env.identityBase}/v1/${path}?key=${encodeURIComponent(env.firebaseApiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
+  })
+  return { res, data: (await res.json().catch(() => ({}))) as Record<string, unknown> }
+}
+
+const idpBody = (providerId: SocialProviderId, providerIdToken: string, requestUri: string) => ({
+  postBody: `id_token=${encodeURIComponent(providerIdToken)}&providerId=${providerId}`,
+  requestUri,
+  returnSecureToken: true,
+  returnIdpCredential: true,
+})
+
+/**
+ * Signs in with Google or Apple. This never signs anyone up: Firebase creates an account for an unknown identity, so a
+ * brand-new account is deleted again straight away and the sign-in is refused. Only a person who already bound the
+ * provider (from the Account page) gets in.
+ */
+export async function signInWithProvider(providerId: SocialProviderId, providerIdToken: string, requestUri: string): Promise<SocialSignInResult> {
+  let call: Awaited<ReturnType<typeof idpCall>>
+  try {
+    call = await idpCall('accounts:signInWithIdp', idpBody(providerId, providerIdToken, requestUri))
+  } catch {
+    return { ok: false, reason: 'unavailable' }
+  }
+  const { res } = call
+  const data = call.data as IdpResponse
+  if (!res.ok) {
+    const code = data.error?.message ?? ''
+    console.error(`[auth] Firebase ${providerId} sign-in failed: HTTP ${res.status} ${code || '(no code)'}`)
+    if (code === 'USER_DISABLED') return { ok: false, reason: 'disabled' }
+    return { ok: false, reason: res.status >= 500 ? 'unavailable' : 'invalid' }
+  }
+  if (data.isNewUser) {
+    if (data.idToken) await idpCall('accounts:delete', { idToken: data.idToken }).catch(() => null)
+    return { ok: false, reason: 'not_linked' }
+  }
+  if (!data.localId || !data.idToken || data.needConfirmation) return { ok: false, reason: 'not_linked' }
+  return { ok: true, user: await loadUser(data.localId, data.idToken, data.email ?? '', true), refreshToken: data.refreshToken ?? '' }
+}
+
+export type LinkResult = { ok: true } | { ok: false; reason: 'already_linked' | 'unavailable' | 'failed' }
+
+/** Binds a Google or Apple identity to the signed-in account (identified by their own Firebase ID token). */
+export async function linkProvider(idToken: string, providerId: SocialProviderId, providerIdToken: string, requestUri: string): Promise<LinkResult> {
+  try {
+    const { res, data } = await idpCall('accounts:signInWithIdp', { ...idpBody(providerId, providerIdToken, requestUri), idToken })
+    if (res.ok) return { ok: true }
+    const code = (data.error as { message?: string } | undefined)?.message ?? ''
+    console.error(`[auth] Firebase ${providerId} link failed: HTTP ${res.status} ${code || '(no code)'}`)
+    if (code.startsWith('FEDERATED_USER_ID_ALREADY_LINKED') || code.startsWith('CREDENTIAL_ALREADY_IN_USE')) return { ok: false, reason: 'already_linked' }
+    return { ok: false, reason: res.status >= 500 ? 'unavailable' : 'failed' }
+  } catch {
+    return { ok: false, reason: 'unavailable' }
+  }
+}
+
+export interface LinkedProvider {
+  providerId: string
+  email: string | null
+}
+
+/** The sign-in methods on the account: 'password', 'google.com', 'apple.com'. Null when Firebase cannot be reached. */
+export async function listProviders(idToken: string): Promise<LinkedProvider[] | null> {
+  try {
+    const { res, data } = await idpCall('accounts:lookup', { idToken })
+    if (!res.ok) return null
+    const user = (data.users as { providerUserInfo?: { providerId?: string; email?: string }[] }[] | undefined)?.[0]
+    return (user?.providerUserInfo ?? []).filter((p) => typeof p.providerId === 'string').map((p) => ({ providerId: p.providerId as string, email: p.email ?? null }))
+  } catch {
+    return null
+  }
+}
+
+export type UnlinkResult = { ok: true } | { ok: false; reason: 'last_method' | 'not_linked' | 'unavailable' }
+
+/** Removes a bound provider. The account always keeps at least one other way to sign in. */
+export async function unlinkProvider(idToken: string, providerId: SocialProviderId): Promise<UnlinkResult> {
+  const linked = await listProviders(idToken)
+  if (!linked) return { ok: false, reason: 'unavailable' }
+  if (!linked.some((p) => p.providerId === providerId)) return { ok: false, reason: 'not_linked' }
+  if (!linked.some((p) => p.providerId !== providerId)) return { ok: false, reason: 'last_method' }
+  try {
+    const { res } = await idpCall('accounts:update', { idToken, deleteProvider: [providerId] })
+    return res.ok ? { ok: true } : { ok: false, reason: 'unavailable' }
+  } catch {
+    return { ok: false, reason: 'unavailable' }
   }
 }
 

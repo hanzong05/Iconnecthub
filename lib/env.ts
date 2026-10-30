@@ -50,3 +50,31 @@ export function getAuthEnv() {
     windowMs: positiveInt('LOGIN_WINDOW_MINUTES', 15) * 60_000,
   }
 }
+
+export type OAuthProviderKey = 'google' | 'apple'
+
+export interface OAuthSettings {
+  clientId: string
+  /** Google: the client secret. Apple: the .p8 private key, and the ids needed to sign the client secret. */
+  clientSecret?: string
+  apple?: { teamId: string; keyId: string; privateKey: string }
+}
+
+/**
+ * Google and Apple sign-in settings. A provider with any value missing is simply off (its buttons are not shown),
+ * so this never throws and the password sign-in keeps working without it.
+ */
+export function getOAuthEnv(): { siteUrl: string | null; google: OAuthSettings | null; apple: OAuthSettings | null } {
+  const v = (name: string) => process.env[name]?.trim() || ''
+  const googleId = v('GOOGLE_CLIENT_ID')
+  const googleSecret = v('GOOGLE_CLIENT_SECRET')
+  const appleId = v('APPLE_CLIENT_ID')
+  const team = v('APPLE_TEAM_ID')
+  const keyId = v('APPLE_KEY_ID')
+  const key = v('APPLE_PRIVATE_KEY').replace(/\\n/g, '\n')
+  return {
+    siteUrl: optionalUrl('NEXT_PUBLIC_SITE_URL'),
+    google: googleId && googleSecret ? { clientId: googleId, clientSecret: googleSecret } : null,
+    apple: appleId && team && keyId && key ? { clientId: appleId, apple: { teamId: team, keyId, privateKey: key } } : null,
+  }
+}

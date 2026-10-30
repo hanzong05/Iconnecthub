@@ -85,6 +85,7 @@ export default function Sidebar({ user, counts, viewAs, open, onClose }: Props) 
         </nav>
 
         <div className="border-t border-white/10 p-3.5">
+          <NavItem item={{ label: 'Account', icon: 'users', href: '/dashboard/account' }} />
           <form action={logoutAction}>
             <button type="submit" className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[14.5px] font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white">
               <NavIcon name="signout" />
